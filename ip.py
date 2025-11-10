@@ -640,31 +640,25 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 
 
 #region [ 4. 사이드바 - IP 네비게이션 ]
-# =====================================================
 def render_sidebar_navigation(on_air_ips: List[str]):
     """
-    [수정] '방영중' 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
-    [수정] 클릭 시 session_state와 query_params를 모두 설정하고, 명시적으로 _rerun()을 호출합니다.
+    방영중 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
+    클릭 시 session_state와 query_params를 동기화 후 rerun합니다.
     """
-    
-    # --- 1. '방영중' IP 목록 (A열) ---
     st.sidebar.markdown("---")
-    st.sidebar.markdown("######  NAVIGATING")
-    
+    st.sidebar.markdown("######  방영중")
+
     current_selected_ip = st.session_state.get("selected_ip", None)
-    
+
     if not on_air_ips:
         st.sidebar.warning("'방영중' 탭(A열)에 IP가 없습니다.")
         st.session_state.selected_ip = None
         return
 
-    # [수정] st.session_state.selected_ip가 None이거나 목록에 없으면, 첫 번째 IP로 강제 설정
     if current_selected_ip is None or current_selected_ip not in on_air_ips:
         st.session_state.selected_ip = on_air_ips[0]
         current_selected_ip = on_air_ips[0]
-        # (참고: 이 기본값 설정은 rerun을 유발하지 않아야 함)
 
-    # '방영중' IP 목록으로 버튼 생성
     for ip_name in on_air_ips:
         is_active = (current_selected_ip == ip_name)
         wrapper_cls = "nav-active" if is_active else "nav-inactive"
@@ -677,20 +671,19 @@ def render_sidebar_navigation(on_air_ips: List[str]):
             type=("primary" if is_active else "secondary")
         )
         st.sidebar.markdown('</div>', unsafe_allow_html=True)
-        
+
         if clicked and not is_active:
-            # 1. 세션 상태 변경 (즉각적인 rerun용)
+            # 1. 세션 상태 갱신
             st.session_state.selected_ip = ip_name
-            
-            # 2. [신규] URL 파라미터 변경 (북마크/공유용)
+
+            # 2. 안전한 URL 파라미터 업데이트
             try:
-                st.query_params["ip"] = ip_name 
+                st.query_params.update(ip=ip_name)
             except AttributeError:
-                st.experimental_set_query_params(ip=ip_name) # 구버전 폴백
-            
-            # 3. [복원] 명시적 rerun 호출
-            _rerun() # _rerun은 Region 1-1에 정의됨
-    
+                st.experimental_set_query_params(ip=ip_name)
+
+            # 3. 즉시 rerun
+            _rerun()
 #endregion
 
 
