@@ -1,5 +1,7 @@
-# 📈 IP 성과 자세히보기 — Standalone v2.0
-# 원본 Dashboard.py에서 'IP 성과 자세히보기' 페이지만을 추출한 단독 실행 파일입니다.
+# 📈 IP 성과 포털 — v3.0 (Portal + Detail)
+# 1. 'front.py'의 포털 UI를 메인 페이지로 사용
+# 2. 'ip.py'의 상세 분석 페이지를 ?ip=... 파라미터로 라우팅
+# 3. 사이드바 제거
 
 #region [ 1. 라이브러리 임포트 ]
 # =====================================================
@@ -7,6 +9,8 @@ import re
 from typing import List, Dict, Any, Optional 
 import time, uuid
 import textwrap
+import hmac # [신규] 인증용
+import urllib.parse # [신규] URL 인코딩용
 
 import numpy as np
 import pandas as pd
@@ -15,6 +19,7 @@ from plotly import graph_objects as go
 import plotly.io as pio
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+from streamlit.components.v1 import html as st_html # [신규] 포털용
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -24,47 +29,48 @@ from google.oauth2.service_account import Credentials
 #region [ 1-0. 페이지 설정 — 반드시 첫 번째 Streamlit 명령 ]
 # =====================================================
 st.set_page_config(
-    page_title="Drama Dashboard - IP Detail", # 페이지 타이틀 수정
+    page_title="드라마 데이터 포털", # [수정] 포털 타이틀
+    page_icon="🧭",
     layout="wide",
-    initial_sidebar_state="expanded"
+    # [수정] initial_sidebar_state 제거 (사이드바 없음)
 )
 #endregion
 
 
-#region [ 1-1. 사이드바 타이틀 ]
+#region [ 1-1. [신규] 포털 인증 ]
 # =====================================================
-# [수정] 인증 관련 함수는 모두 삭제하고, 사이드바 UI와 _rerun만 남깁니다.
+# (front.py의 인증 로직)
 
-def _rerun():
-    """세션 상태 변경 후 페이지를 새로고침합니다."""
-    if hasattr(st, "rerun"):
-        st.rerun()
-    else:
-        st.experimental_rerun()
+PW_SECRET = st.secrets.get("auth", {}).get("frontpage_password")
+TOKEN_SECRET = st.secrets.get("auth", {}).get("token")
 
-with st.sidebar:
-    st.markdown(
-        """
-        <div class="page-title-wrap">
-          <span class="page-title-emoji">📈</span>
-          <span class="page-title-main">IP-시청자 반응 브리핑</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<p class='sidebar-contact' style='font-size:12px; color:gray; text-align:center;'>문의 : 미디어)디지털마케팅팀 데이터파트</p>",
-        unsafe_allow_html=True
-    )
-    
-    # [수정] 관리자 모드 로그인 UI 전체 삭제
+def _qs_key() -> str:
+    # [수정] st.query_params 사용 (최신)
+    try:
+        return st.query_params.get("key", "")
+    except Exception:
+        return "" # 폴백
 
+_qs = _qs_key()
+if TOKEN_SECRET and _qs and hmac.compare_digest(str(_qs), str(TOKEN_SECRET)):
+    st.session_state["_authed"] = True
+
+if not st.session_state.get("_authed", False):
+    st.markdown("### 🔐 드라마 데이터 포털 접근 권한 필요")
+    pw = st.text_input("비밀번호를 입력하세요", type="password", placeholder="••••••••")
+    if st.button("입장"):
+        if PW_SECRET and hmac.compare_digest(str(pw), str(PW_SECRET)):
+            st.session_state["_authed"] = True
+            st.rerun()
+        else:
+            st.error("비밀번호가 올바르지 않습니다.")
+    st.stop() # 인증되지 않으면 앱 실행 중지
 #endregion
 
 
 #region [ 2. 공통 스타일 통합 ]
 # =====================================================
-# (이 영역은 원본과 동일하게 유지됩니다)
+# (ip.py의 CSS, [수정] 사이드바 관련 스타일 모두 제거)
 st.markdown("""
 <style>
 /* --- [기본] Hover foundation & Title/Box exceptions --- */
@@ -136,13 +142,9 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover{
   box-shadow: inherit !important;
   z-index: auto !important;
 }
-section[data-testid="stSidebar"] .kpi-card:hover,
-section[data-testid="stSidebar"] .block-card:hover,
-section[data-testid="stSidebar"] .stPlotlyChart:hover,
-section[data-testid="stSidebar"] .ag-theme-streamlit .ag-root-wrapper:hover{
-  transform: none !important;
-  box-shadow: inherit !important;
-}
+
+/* [수정] 사이드바 관련 CSS 규칙 전체 삭제 */
+
 .kpi-card, .block-card, .stPlotlyChart, .ag-theme-streamlit .ag-root-wrapper{
   transition: transform .18s ease, box-shadow .18s ease;
   will-change: transform, box-shadow;
@@ -181,72 +183,12 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     margin-bottom: 1.5rem;
 }
 
-/* --- [사이드바] 기본 스타일 + 접힘 방지 --- */
-section[data-testid="stSidebar"] {
-    background: #ffffff;
-    border-right: 1px solid #e0e0e0;
-    padding-top: 1rem;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-    min-width:320px !important;
-    max-width:320px !important;
-}
-div[data-testid="collapsedControl"] { display:none !important; }
+/* --- [사이드바] 관련 스타일 전체 삭제 --- */
+/* section[data-testid="stSidebar"] { ... } 삭제 */
+/* div[data-testid="collapsedControl"] { ... } 삭제 */
+/* .page-title-wrap { ... } (사이드바용) 삭제 */
+/* ... 등등 ... */
 
-/* --- [사이드바] 그라디언트 타이틀 --- */
-.page-title-wrap{
-  display:flex; align-items:center; gap:8px; margin:4px 0 10px 0;
-}
-.page-title-emoji{ font-size:20px; line-height:1; }
-.page-title-main{
-  font-size: clamp(18px, 2.2vw, 24px);
-  font-weight: 800; letter-spacing:-0.2px; line-height:1.15;
-  background: linear-gradient(90deg,#6A5ACD 0%, #A663CC 40%, #FF7A8A 75%, #FF8A3D 100%);
-  -webkit-background-clip:text; background-clip:text; color:transparent;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-section[data-testid="stSidebar"] .page-title-wrap{justify-content:center;text-align:center;}
-section[data-testid="stSidebar"] .page-title-main{display:block;text-align:center;}
-section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
-section[data-testid="stSidebar"] .stCaption,
-section[data-testid="stSidebar"] .stMarkdown p.sidebar-contact{ text-align:center !important; }
-
-/* --- [사이드바] 네비게이션 버튼 (v2) --- */
-/* [수정] 네비게이션 관련 스타일 제거 (단독 페이지이므로 불필요) */
-/*
-section[data-testid="stSidebar"] .block-container{padding-top:0.75rem;}
-...
-.sidebar-hr { margin: 0; border-top: 1px solid #E5E7EB; }
-*/
-
-/* --- [사이드바] 내부 카드/여백 제거 (SIDEBAR CARD STRIP) --- */
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  margin-bottom: 0 !important; /* [수정] 네비게이션 버튼 간격 제거 */
-}
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-  transform: none !important;
-  box-shadow: none !important;
-}
-section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-section[data-testid="stSidebar"] .block-container, 
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  box-shadow: none !important;
-  border: none !important;
-  background: transparent !important;
-}
 
 /* --- [컴포넌트] KPI 카드 --- */
 .kpi-card {
@@ -338,41 +280,9 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.block-card:hover):not(:has(
   box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
   z-index: 3 !important;
 }
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
-  transform: none !important;
-  box-shadow: inherit !important;
-  z-index: auto !important;
-  /* [추가] 사이드바에서는 트랜지션 효과 제거 */
-  transition: none !important; 
-}
-/* [수정] 아래의 중복 규칙들은 위의 통합 규칙으로 병합됨 */
-            
-/* ===== Sidebar compact spacing (tunable) ===== */
-/* [수정] 네비게이션이 없으므로, 원본의 사이드바 여백 조절 스타일은 대부분 불필요 */
-/* [수정] 단, 로그인 버튼/텍스트 등 최소한의 스타일은 남김 */
-[data-testid="stSidebar"]{
-  --sb-gap: 6px;
-  --sb-pad-y: 8px;
-  --sb-pad-x: 10px;
-  --label-gap: 3px;
-}
-[data-testid="stSidebar"] .block-container{
-  padding: var(--sb-pad-y) var(--sb-pad-x) !important;
-}
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{
-  gap: var(--sb-gap) !important;
-}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, 
-[data-testid="stSidebar"] h4, [data-testid="stSidebar"] h5, [data-testid="stSidebar"] h6{
-  margin: 2px 0 calc(var(--label-gap)+1px) !important;
-}
-[data-testid="stSidebar"] .stMarkdown, 
-[data-testid="stSidebar"] label{
-  margin: 0 0 var(--label-gap) !important;
-  line-height: 1.18 !important;
-}
-[data-testid="stSidebar"] .stButton{ margin: 0 !important; }
 
+/* [수정] 사이드바 관련 CSS 규칙 전체 삭제 */
+            
 </style>
 """, unsafe_allow_html=True)
 #endregion
@@ -418,7 +328,6 @@ pio.templates.default = 'dashboard_theme'
 # =====================================================
 #endregion
 
-
 #region [ 3. 공통 함수: 데이터 로드 / 유틸리티 ]
 # =====================================================
 
@@ -439,15 +348,61 @@ def get_gspread_client():
         st.error(f"GSpread 클라이언트 인증 실패: {e}")
         return None
 
-# ===== 3.1. 데이터 로드 (gspread) =====
+# ===== [신규] 3.1a. 포털 데이터 로드 (A열, E열) =====
+@st.cache_data(ttl=600)
+def load_portal_data() -> List[Dict[str, str]]:
+    """
+    [신규] 포털 페이지용 데이터를 GSheet '포털' 탭에서 로드합니다.
+    - A열: IP명 (카드 제목)
+    - E열: 이미지 URL (포스터)
+    """
+    worksheet_name = "포털" # [신규] '포털'이라는 이름의 탭을 읽습니다.
+    
+    client = get_gspread_client()
+    if client is None:
+        return []
+        
+    try:
+        sheet_id = st.secrets["SHEET_ID"]
+        spreadsheet = client.open_by_key(sheet_id)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+        
+        # A열과 E열의 데이터만 가져옵니다 (A2:A, E2:E)
+        ips = worksheet.get_values('A2:A')
+        imgs = worksheet.get_values('E2:E')
+        
+        portal_list = []
+        # ips, imgs 중 더 짧은 길이를 기준으로 순회
+        for i in range(min(len(ips), len(imgs))):
+            ip_name = ips[i][0].strip() if ips[i] else ""
+            img_url = imgs[i][0].strip() if imgs[i] else ""
+            
+            # IP명과 이미지 URL이 모두 있어야 카드로 추가
+            if ip_name and img_url:
+                portal_list.append({
+                    "ip": ip_name,
+                    "img_url": img_url,
+                    "desc": f"'{ip_name}' 상세 데이터 보기" # [신규] 카드 설명
+                })
+        
+        return portal_list
+
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"GSheet에 '{worksheet_name}' 탭을 찾을 수 없습니다. (A열=IP, E열=이미지URL)")
+        return []
+    except Exception as e:
+        st.error(f"'{worksheet_name}' 탭(A, E열) 로드 오류: {e}")
+        return []
+
+
+# ===== 3.1. [기존] 상세페이지 데이터 로드 (gspread) =====
 @st.cache_data(ttl=600)
 def load_data() -> pd.DataFrame:
     """
-    [수정] Streamlit Secrets와 gspread를 사용하여 비공개 Google Sheet에서 데이터를 인증하고 로드합니다.
-    st.secrets에 'SHEET_ID', 'SHEET_NAME'이 있어야 합니다.
+    [기존] 'IP 성과 자세히보기'용 전체 데이터를 로드합니다.
     """
     
-    client = get_gspread_client() # [수정] 캐시된 클라이언트 사용
+    client = get_gspread_client() 
     if client is None:
         return pd.DataFrame()
         
@@ -501,12 +456,11 @@ def load_data() -> pd.DataFrame:
 
     return df
 
-# ===== [신규] 3.1b. C열 URL에서 GID 맵 가져오기 (API) =====
+# ===== [기존] 3.1b. C열 URL에서 GID 맵 가져오기 (API) =====
 @st.cache_data(ttl=600)
 def get_tab_gids_from_sheet(edit_url: str) -> Dict[str, int]:
     """
-    [신규] C열의 /edit URL을 API로 열어 {탭이름: GID} 딕셔너리를 반환합니다.
-    (주의: 서비스 계정이 이 edit_url 시트에 '뷰어'로 초대되어 있어야 합니다.)
+    [기존] C열의 /edit URL을 API로 열어 {탭이름: GID} 딕셔너리를 반환합니다.
     """
     client = get_gspread_client()
     if client is None: 
@@ -525,13 +479,11 @@ def get_tab_gids_from_sheet(edit_url: str) -> Dict[str, int]:
         st.error(f"C열의 시트({edit_url}) GID 로드 중 오류: {e}")
         return {}
 
-# ===== 3.1c. [수정] '방영중' 탭 (A,B,C,D열) 처리 =====
+# ===== 3.1c. [기존] '방영중' 탭 (A,B,C,D열) 처리 =====
 @st.cache_data(ttl=600)
 def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
     """
-    [수정] '방영중' 탭(A,B,C,D열)을 읽어 최종 임베딩 URL 맵을 생성합니다.
-    1. C열 URL로 GID 맵 가져오기 (get_tab_gids_from_sheet)
-    2. D열 URL에 B열 탭의 GID를 조합하여 최종 URL 생성
+    [기존] '방영중' 탭(A,B,C,D열)을 읽어 최종 임베딩 URL 맵을 생성합니다.
     """
     worksheet_name = "방영중"
     
@@ -544,10 +496,8 @@ def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
         spreadsheet = client.open_by_key(sheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
         
-        # 'A2:D' 범위의 모든 값을 가져옵니다 (헤더 제외).
         values = worksheet.get_values('A2:D') 
         
-        # 1. A,B,C,D열 데이터를 IP별로 그룹화
         config_map = {}
         for row in values:
             if row and len(row) > 3 and row[0].strip() and row[1].strip() and row[2].strip() and row[3].strip():
@@ -555,33 +505,28 @@ def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
                 
                 if ip not in config_map:
                     config_map[ip] = {
-                        "edit_url": edit_url, # C열 (GID 찾기용)
-                        "publish_url_base": pub_url.split('?')[0], # D열 (임베딩용, ?gid= 전까지)
-                        "tabs_to_process": [] # B열 (탭 이름 목록)
+                        "edit_url": edit_url, 
+                        "publish_url_base": pub_url.split('?')[0],
+                        "tabs_to_process": [] 
                     }
                 config_map[ip]["tabs_to_process"].append(tab_name)
 
-        # 2. IP별로 GID를 찾아 최종 URL 조합
         final_data_structure = {}
         for ip, config in config_map.items():
             final_data_structure[ip] = []
             
-            # C열 URL로 API 호출하여 GID 맵 가져오기
             gid_map = get_tab_gids_from_sheet(config["edit_url"]) 
             
-            if not gid_map: # API 호출 실패 시 (권한 오류 등)
+            if not gid_map: 
                 st.warning(f"'{ip}'의 GID를 C열 시트에서 가져오지 못했습니다. (권한 확인 필요)")
                 continue 
 
-            # B열의 탭 이름을 GID로 변환하고 D열 URL과 조합
             for tab_name in config["tabs_to_process"]:
                 gid = gid_map.get(tab_name.strip())
                 
                 if gid is not None:
-                    # D열 URL 베이스 + 찾은 GID
                     final_url = f"{config['publish_url_base']}?gid={gid}&single=true"
                     
-                    # '사전 반응' 탭 우선 정렬
                     if "사전 반응" in tab_name:
                          final_data_structure[ip].insert(0, {"title": tab_name, "url": final_url})
                     else:
@@ -592,10 +537,10 @@ def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
         return final_data_structure
 
     except gspread.exceptions.WorksheetNotFound:
-        st.sidebar.error(f"'{worksheet_name}' 탭을 찾을 수 없습니다.")
+        st.error(f"'{worksheet_name}' 탭을 찾을 수 없습니다.")
         return {}
     except Exception as e:
-        st.sidebar.error(f"'방영중' 탭(A:D열) 로드 오류: {e}")
+        st.error(f"'{worksheet_name}' 탭(A:D열) 로드 오류: {e}")
         return {}
 
 # ===== 3.2. UI / 포맷팅 헬퍼 함수 =====
@@ -608,9 +553,8 @@ def fmt(v, digits=3, intlike=False):
         return "–"
     return f"{v:,.0f}" if intlike else f"{v:.{digits}f}"
 
-# ===== [수정] 3.2b. G-Sheet '게시용' URL 렌더러 =====
 def render_published_url(published_url: str):
-    """[수정] '웹에 게시'된 URL을 iframe으로 렌더링합니다. (URL 변환 X)"""
+    """[기존] '웹에 게시'된 URL을 iframe으로 렌더링합니다."""
     
     st.markdown(f"""
         <iframe
@@ -639,52 +583,240 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 #endregion
 
 
-#region [ 4. 사이드바 - IP 네비게이션 ]
+#region [ 4. [신규] 포털 페이지 렌더링 ]
 # =====================================================
-def render_sidebar_navigation(on_air_ips: List[str]):
-    """
-    [수정] '방영중' 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
-    """
-    
-    # --- 1. '방영중' IP 목록 (A열) ---
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("######  NAVIGATING")
-    
-    current_selected_ip = st.session_state.get("selected_ip", None)
-    
-    if not on_air_ips:
-        st.sidebar.warning("'방영중' 탭(A열)에 IP가 없습니다.")
-        st.session_state.selected_ip = None
-        return
+# (front.py의 UI + GSheet 데이터 결합)
 
-    # [수정] st.session_state.selected_ip가 None이거나 목록에 없으면, 첫 번째 IP로 강제 설정
-    if current_selected_ip is None or current_selected_ip not in on_air_ips:
-        st.session_state.selected_ip = on_air_ips[0]
-        current_selected_ip = on_air_ips[0]
-
-    # '방영중' IP 목록으로 버튼 생성
-    for ip_name in on_air_ips:
-        is_active = (current_selected_ip == ip_name)
-        wrapper_cls = "nav-active" if is_active else "nav-inactive"
-        st.sidebar.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
-
-        clicked = st.sidebar.button(
-            ip_name,
-            key=f"navbtn__{ip_name}",
-            use_container_width=True,
-            type=("primary" if is_active else "secondary")
-        )
-        st.sidebar.markdown('</div>', unsafe_allow_html=True)
+def build_portal_cards(portal_data: List[Dict[str, str]]) -> str:
+    """[신규] GSheet에서 읽어온 데이터로 포털 카드 HTML을 생성합니다."""
+    cards = []
+    for item in portal_data:
+        ip_name = item.get("ip", "알 수 없는 IP")
+        img_url = item.get("img_url", "https://images.unsplash.com/photo-1507842217343-583bb7270b66")
+        desc = item.get("desc", f"'{ip_name}' 상세 데이터 보기")
         
-        if clicked and not is_active:
-            st.session_state.selected_ip = ip_name
-            _rerun() # _rerun은 Region 1-1에 정의됨
-    
-#endregion
+        # [수정] URL을 ?ip=... 파라미터로 변경
+        # [수정] IP이름에 특수문자(+, &, # 등)가 있어도 괜찮도록 URL 인코딩
+        ip_encoded = urllib.parse.quote(ip_name)
+        url = f"?ip={ip_encoded}"
+        
+        cards.append(f"""
+        <a class="card-link" href="{url}" target="_self">
+          <div class="card">
+            <div class="thumb-wrap"><img class="thumb" src="{img_url}" alt="{ip_name}"></div>
+            <div class="body">
+              <div class="title">{ip_name}</div>
+              <p class="desc">{desc}</p>
+            </div>
+          </div>
+        </a>
+        """)
+    return "".join(cards)
 
+def render_portal_page():
+    """[신규] 메인 포털 페이지를 렌더링합니다."""
+    
+    # --- 1. 포털 상단 헤더 (front.py) ---
+    st.markdown(
+        """
+        <style>
+          .grad-title {
+            font-weight: 900;
+            font-size: clamp(28px, 4vw, 42px);
+            line-height: 1.15;
+            margin: 4px 0 2px 0;
+            background: linear-gradient(90deg, #6757e7 0%, #9B72CB 35%, #ff7bb0 70%, #ff8a4d 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: 0.2px;
+            text-align: center;
+          }
+          .grad-sub { text-align: center; opacity: .70; margin-top: 2px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='grad-title'>드라마 데이터 포털</div>", unsafe_allow_html=True)
+    st.markdown("<div class='grad-sub'>문의: 미디어)디지털마케팅팀 데이터파트</div>", unsafe_allow_html=True)
+    st.write("")
+    
+    # --- 2. 데이터 로드 및 카드 생성 ---
+    portal_data = load_portal_data() # [ 3.1a. 신규 함수 ]
+    if not portal_data:
+        st.error("포털 데이터를 불러올 수 없습니다. GSheet '포털' 탭을 확인하세요.")
+        st.stop()
+        
+    cards_html = build_portal_cards(portal_data)
+
+    # --- 3. HTML 렌더링 (front.py) ---
+    # [수정] 카드 크기를 포스터(2:3 비율)로 변경
+    # [수정] st_html 높이를 520px로 변경
+    st_html(f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {{
+        /* [수정] 포스터 비율 (240x360) */
+        --card-w: 240px;
+        --thumb-h: 360px;
+      }}
+      body {{ margin:0; padding:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; }}
+      .zone {{ margin: 8px 0 18px 0; padding: 0 6px; }}
+      .zone-title {{ font-weight: 800; opacity:.85; margin: 0 0 8px 6px; }}
+
+      /* 컨테이너(오버레이 화살표 포함) */
+      .scroll-wrap {{
+        position: relative;
+      }}
+
+      /* 1행 수평 스크롤 영역 */
+      .row-scroll {{
+        display: flex;
+        gap: 24px;
+        overflow-x: auto; overflow-y: hidden;
+        padding: 8px 4px 18px 4px;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;           /* Firefox */
+      }}
+      .row-scroll::-webkit-scrollbar {{ display: none; }} /* WebKit */
+
+      /* 플로팅 카드 */
+      .card {{
+        position: relative;
+        flex: 0 0 var(--card-w);
+        width: var(--card-w);
+        background: rgba(255,255,255,0.92);
+        border: 1px solid rgba(0,0,0,0.06);
+        border-radius: 18px;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.12);
+        overflow: hidden;
+        scroll-snap-align: start;
+        transition: transform .2s ease, box-shadow .2s ease;
+        will-change: transform;
+      }}
+      .card:hover {{ transform: translateY(-4px); }}
+
+      /* 이미지 중앙 크롭 */
+      .thumb-wrap {{ width:100%; height: var(--thumb-h); background:#0f1116; }}
+      .thumb {{
+        width:100%; height:100%;
+        object-fit: cover; object-position: center; display:block;
+      }}
+
+      .body {{ padding: 14px 18px 18px 18px; }}
+      .title {{
+        font-weight: 800; font-size: 1.05rem; line-height: 1.25rem;
+        margin: 8px 0 6px 0; color: inherit;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }}
+      .desc {{ margin: 0; opacity:.72; font-size:.92rem; }}
+      a.card-link {{ text-decoration:none; color:inherit; display:block; }}
+
+      /* 좌/우 오버레이 화살표 */
+      .arrow {{
+        position: absolute; top: 0; bottom: 0;
+        width: 56px;
+        display: flex; align-items: center; justify-content: center;
+        /* [수정] 포스터가 길어졌으므로 화살표 배경 수정 */
+        background: linear-gradient(to var(--side), rgba(248, 249, 250, 0.8), rgba(248, 249, 250, 0));
+        pointer-events: auto;
+        opacity: 0; transition: opacity .2s ease;
+      }}
+      .scroll-wrap:hover .arrow {{ opacity: 1; }}
+
+      .arrow-left  {{ left: 0;  --side: right;  border-top-left-radius: 14px; border-bottom-left-radius: 14px; }}
+      .arrow-right {{ right: 0; --side: left;   border-top-right-radius:14px; border-bottom-right-radius:14px; }}
+
+      .arrow > .chev {{
+        width: 28px; height: 28px; border-radius: 999px;
+        display:flex; align-items:center; justify-content:center;
+        background: rgba(0,0,0,0.38); color: white; font-weight: 900;
+        box-shadow: 0 2px 8px rgba(0,0,0,.25);
+        user-select: none;
+      }}
+      .arrow:hover > .chev {{ background: rgba(0,0,0,0.55); }}
+    </style>
+    </head>
+    <body>
+
+    <div class="zone">
+      <div class="zone-title">IP 상세 분석</div>
+
+      <div class="scroll-wrap">
+        <div id="row1" class="row-scroll">
+          {cards_html}
+        </div>
+
+        <div class="arrow arrow-left"  data-dir="-1" title="왼쪽으로">
+          <div class="chev">◀</div>
+        </div>
+        <div class="arrow arrow-right" data-dir="1"  title="오른쪽으로">
+          <div class="chev">▶</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    (function() {{
+      const row = document.getElementById('row1');
+      if (!row) return;
+
+      const wrap = row.parentElement;
+      const left = wrap.querySelector('.arrow-left');
+      const right = wrap.querySelector('.arrow-right');
+
+      // hover 자동 스크롤 (부드럽게)
+      let hoverTimer = null;
+      function startHover(dir) {{
+        stopHover();
+        hoverTimer = setInterval(() => {{
+          row.scrollBy({{ left: dir * 12, behavior: 'smooth' }});
+        }}, 16); // 약 60fps
+      }}
+      function stopHover() {{
+        if (hoverTimer) {{ clearInterval(hoverTimer); hoverTimer = null; }}
+      }}
+
+      left.addEventListener('mouseenter', () => startHover(-1));
+      right.addEventListener('mouseenter', () => startHover(1));
+      left.addEventListener('mouseleave', stopHover);
+      right.addEventListener('mouseleave', stopHover);
+
+      // 클릭 시 큰 폭으로 점프
+      left.addEventListener('click',  () => row.scrollBy({{ left: -320, behavior: 'smooth' }}));
+      right.addEventListener('click', () => row.scrollBy({{ left:  320, behavior: 'smooth' }}));
+
+      // 처음/끝에선 화살표 흐리게
+      function updateArrows() {{
+        if (!row.parentElement.contains(row)) return; // [Fix]
+        const atStart = row.scrollLeft <= 0;
+        const atEnd = row.scrollLeft + row.clientWidth >= row.scrollWidth - 5; // [Fix]
+        left.style.pointerEvents  = atStart ? 'none' : 'auto';
+        left.style.opacity        = atStart ? '0.25' : '';
+        right.style.pointerEvents = atEnd   ? 'none' : 'auto';
+        right.style.opacity       = atEnd   ? '0.25' : '';
+      }}
+      row.addEventListener('scroll', updateArrows);
+      window.addEventListener('resize', updateArrows);
+      setTimeout(updateArrows, 150); // [Fix]
+    }})();
+    </script>
+
+    </body>
+    </html>
+    """, height=520, scrolling=False) # [수정] 높이 520px
+
+    # --- 4. 포털 하단 푸터 (front.py) ---
+    st.markdown("<hr style='margin-top:30px; opacity:.2;'>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; opacity:.65;'>© 드라마 데이터 포털</p>", unsafe_allow_html=True)
+#endregion
 
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
 # =====================================================
+# (기존 ip.py Region 5와 동일)
 def _episode_col(df: pd.DataFrame) -> str:
     """데이터프레임에 존재하는 회차 숫자 컬럼명을 반환합니다."""
     return "회차_numeric" if "회차_numeric" in df.columns else ("회차_num" if "회차_num" in df.columns else "회차")
@@ -746,6 +878,7 @@ def mean_of_ip_sums(df: pd.DataFrame, metric_name: str, media=None) -> float | N
 
 #region [ 6. 공통 집계 유틸: 데모  ]
 # =====================================================
+# (기존 ip.py Region 6과 동일)
 # ===== 6.1. 데모 문자열 파싱 유틸 =====
 def _gender_from_demo(s: str):
     """'데모' 문자열에서 성별(남/여/기타)을 추출합니다."""
@@ -753,8 +886,6 @@ def _gender_from_demo(s: str):
     if any(k in s for k in ["여", "F", "female", "Female"]): return "여"
     if any(k in s for k in ["남", "M", "male", "Male"]): return "남"
     return "기타"
-
-# [수정] gender_from_demo() 는 이 페이지에서 미사용 (페이지 3 전용)
 
 def _to_decade_label(x: str):
     """'데모' 문자열에서 연령대(10대, 20대...)를 추출합니다."""
@@ -884,24 +1015,25 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 
     container.plotly_chart(fig, use_container_width=True,
                            config={"scrollZoom": False, "staticPlot": False, "displayModeBar": False})
-
-# [수정] get_avg_demo_pop_by_episode() 함수 제거 (페이지 3 전용)
 #endregion
 
 
 #region [ 7. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
-# [수정] 원본 Region 8
+# (기존 ip.py Region 7, [신규] '포털로 돌아가기' 버튼 추가)
 def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]]):
     """
-    [수정] ip_selected와 '방영중' 탭에서 처리된 최종 데이터를 인자로 받음
-    [수정] 탭 UI를 페이지 최상단으로 이동
+    [기존] ip.py의 상세 페이지 렌더링 함수
     """
 
-    # ===== [수정] 1. 고정 페이지 타이틀 (항상 표시) =====
+    # ===== [신규] 0. '포털로 돌아가기' 버튼 =====
+    # (HTML <a href="?">를 사용하여 파라미터 없이 현재 페이지를 로드)
+    st.markdown('<a href="?" target="_self" style="text-decoration: none; font-weight: 600; font-size: 1.1rem;">⬅️ 포털로 돌아가기</a>', unsafe_allow_html=True)
+
+    # ===== [기존] 1. 고정 페이지 타이틀 (항상 표시) =====
     st.markdown(f"<div class='page-title'>📈 {ip_selected} 시청자 반응 브리핑</div>", unsafe_allow_html=True)
 
-    # ===== [수정] 2. 탭 UI 구성 (페이지 상단) =====
+    # ===== [기존] 2. 탭 UI 구성 (페이지 상단) =====
     
     # 2a. 임베딩할 탭 목록 가져오기
     embeddable_tabs = on_air_data.get(ip_selected, []) 
@@ -909,39 +1041,36 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # 2b. [수정] 탭 이름 목록 생성 (더미 탭 포함)
     tab_titles = ["📈 성과 자세히보기"]
     if embeddable_tabs:
-        # [신규] 2. '시청자 반응 브리핑' 더미 탭 추가
         tab_titles.append("👥 시청자 반응 브리핑") 
-        # G-Sheet 탭 이름 추가
         tab_titles.extend([tab["title"] for tab in embeddable_tabs])
 
-    # 2c. [수정] st.tabs()를 사용하여 탭 생성 (오류 수정)
+    # 2c. 탭 생성
     created_tabs = st.tabs(tab_titles)
     
     # 2d. 탭 위젯 할당
     main_tab = created_tabs[0]
     dummy_tab = None
-    sheet_tabs_widgets = [] # G-Sheet 탭 위젯
+    sheet_tabs_widgets = [] 
     
     if embeddable_tabs:
-        dummy_tab = created_tabs[1]           # 더미 탭
-        sheet_tabs_widgets = created_tabs[2:] # 실제 G-Sheet 탭
+        dummy_tab = created_tabs[1]
+        sheet_tabs_widgets = created_tabs[2:]
 
     # ===== 탭 1: 기존 성과 자세히보기 =====
     with main_tab:
         
-        # [수정] 1. 탭 서브 타이틀 제거
-        # st.markdown(f"### 📈 성과 자세히보기") 
+        # [수정] 탭 서브 타이틀 제거
         
-        # [수정] 1, 3, 4. '비교 그룹 기준' 필터 수정 (default, placeholder)
+        # [수정] '비교 그룹 기준' 필터 수정 (default, placeholder)
         selected_group_criteria = st.multiselect(
             "📊 비교 그룹 기준 선택", 
             ["동일 편성", "방영 연도"],
-            default=[], # [수정] 3. 기본값 없음
-            placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)", # [수정] 4. 문구 추가
+            default=[], 
+            placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)",
             key="ip_detail_group"
         )
         
-        # --- [이하 'render_ip_detail'의 기존 로직을 main_tab 안에 배치] ---
+        # --- [이하 'render_ip_detail'의 기존 로직] ---
         
         df_full = load_data() # [3. 공통 함수]
         
@@ -1017,7 +1146,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         else:
             base["회차_num"] = pd.to_numeric(base["회차"].str.extract(r"(\d+)", expand=False), errors="coerce")
 
-        st.markdown("---") # st.markdown("---") 대신 <hr> 사용
+        st.markdown("---") 
 
         # --- Metric Normalizer (페이지 2 전용) ---
         def _normalize_metric(s: str) -> str:
@@ -1034,13 +1163,13 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             return df[df["metric_norm"] == target]
 
         # --- KPI/평균비/랭킹 계산 ---
-        val_T = mean_of_ip_episode_mean(f, "T시청률") # [5. 공통 함수]
-        val_H = mean_of_ip_episode_mean(f, "H시청률") # [5. 공통 함수]
-        val_live = mean_of_ip_episode_sum(f, "시청인구", ["TVING LIVE"]) # [5. 공통 함수]
-        val_quick = mean_of_ip_episode_sum(f, "시청인구", ["TVING QUICK"]) # [5. 공통 함수]
-        val_vod = mean_of_ip_episode_sum(f, "시청인구", ["TVING VOD"]) # [5. 공통 함수]
-        val_buzz = mean_of_ip_sums(f, "언급량") # [5. 공통 함수]
-        val_view = mean_of_ip_sums(f, "조회수") # [5. 공통 함수]
+        val_T = mean_of_ip_episode_mean(f, "T시청률") 
+        val_H = mean_of_ip_episode_mean(f, "H시청률") 
+        val_live = mean_of_ip_episode_sum(f, "시청인구", ["TVING LIVE"]) 
+        val_quick = mean_of_ip_episode_sum(f, "시청인구", ["TVING QUICK"]) 
+        val_vod = mean_of_ip_episode_sum(f, "시청인구", ["TVING VOD"]) 
+        val_buzz = mean_of_ip_sums(f, "언급량") 
+        val_view = mean_of_ip_sums(f, "조회수") 
 
         # --- 화제성 메트릭 (페이지 2 전용) ---
         def _min_of_ip_metric(df_src: pd.DataFrame, metric_name: str) -> float | None:
@@ -1084,7 +1213,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         def _series_ip_metric(base_df: pd.DataFrame, metric_name: str, mode: str = "mean", media: List[str] | None = None):
             
             if metric_name == "조회수":
-                sub = _get_view_data(base_df) # [3. 공통 함수]
+                sub = _get_view_data(base_df) 
             else:
                 sub = _metric_filter(base_df, metric_name).copy()
 
@@ -1093,7 +1222,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             if sub.empty:
                 return pd.Series(dtype=float)
 
-            ep_col = _episode_col(sub) # [5. 공통 함수]
+            ep_col = _episode_col(sub) 
             sub = sub.dropna(subset=[ep_col])
             if sub.empty: 
                 return pd.Series(dtype=float)
@@ -1114,7 +1243,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             elif mode == "min":
                 s = sub.groupby("IP")["value"].min()
             else:
-                s = sub.groupby("IP")["value"].mean() # mode="mean"의 폴백
+                s = sub.groupby("IP")["value"].mean() 
                 
             return pd.to_numeric(s, errors="coerce").dropna()
 
@@ -1192,7 +1321,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         def kpi_with_rank(col, title, value, base_val, rank_tuple, prog_label,
                           intlike=False, digits=3, value_suffix:str=""):
             with col:
-                main_val = fmt(value, digits=digits, intlike=intlike) # [3. 공통 함수]
+                main_val = fmt(value, digits=digits, intlike=intlike) 
                 main = f"{main_val}{value_suffix}"
                 st.markdown(
                     f"<div class='kpi-card'>"
@@ -1308,7 +1437,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         cC, cD = st.columns(2)
         with cC:
             st.markdown("<div class='sec-title'>▶ 디지털 조회수</div>", unsafe_allow_html=True)
-            dview = _get_view_data(f) # [3. 공통 함수] (피드백 3번)
+            dview = _get_view_data(f) 
             if not dview.empty:
                 if has_week_col and dview["주차"].notna().any():
                     order = (dview[["주차", "주차_num"]].dropna().drop_duplicates().sort_values("주차_num")["주차"].tolist())
@@ -1458,11 +1587,10 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         cG, cH = st.columns(2)
 
         tv_demo = f[(f["매체"] == "TV") & (f["metric"] == "시청인구") & f["데모"].notna()].copy()
-        render_gender_pyramid(cG, "🎯 TV 데모 분포", tv_demo, height=260) # [6. 공통 함수]
-
+        render_gender_pyramid(cG, "🎯 TV 데모 분포", tv_demo, height=260) 
         t_keep = ["TVING LIVE", "TVING QUICK", "TVING VOD"]
         tving_demo = f[(f["매체"].isin(t_keep)) & (f["metric"] == "시청인구") & f["데모"].notna()].copy()
-        render_gender_pyramid(cH, "📺 TVING 데모 분포", tving_demo, height=260) # [6. 공통 함수]
+        render_gender_pyramid(cH, "📺 TVING 데모 분포", tving_demo, height=260) 
 
         st.divider()
 
@@ -1479,8 +1607,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             if sub.empty:
                 return pd.DataFrame(columns=["회차"] + DEMO_COLS_ORDER)
 
-            sub["성별"] = sub["데모"].apply(_gender_from_demo) # [6. 공통 함수]
-            sub["연령대_대"] = sub["데모"].apply(_decade_label_clamped) # [6. 공통 함수]
+            sub["성별"] = sub["데모"].apply(_gender_from_demo) 
+            sub["연령대_대"] = sub["데모"].apply(_decade_label_clamped) 
             sub = sub[sub["성별"].isin(["남", "여"]) & sub["연령대_대"].notna()].copy()
             
             if "회차_num" not in sub.columns: 
@@ -1492,11 +1620,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
             pvt = sub.pivot_table(index="회차_num", columns="라벨", values="value", aggfunc="sum").fillna(0)
 
-            for c in DEMO_COLS_ORDER: # [2.1. 공통 상수]
+            for c in DEMO_COLS_ORDER: 
                 if c not in pvt.columns:
                     pvt[c] = 0
             pvt = pvt[DEMO_COLS_ORDER].sort_index()
-            pvt.insert(0, "회차", pvt.index.map(_fmt_ep)) # [6. 공통 함수]
+            pvt.insert(0, "회차", pvt.index.map(_fmt_ep)) 
             return pvt.reset_index(drop=True)
 
         # --- [페이지 2]용 AgGrid 렌더러 ---
@@ -1507,7 +1635,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
           const rowIndex = params.node.rowIndex;
           const val = Number(params.value || 0);
           if (colId === "회차") return params.value;
-
           let arrow = "";
           if (rowIndex > 0) {
             const prev = api.getDisplayedRowAtIndex(rowIndex - 1);
@@ -1592,68 +1719,49 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         tving_numeric = _build_demo_table_numeric(f, ["TVING LIVE", "TVING QUICK", "TVING VOD"])
         _render_aggrid_table(tving_numeric, "▶︎ TVING 합산 (LIVE/QUICK/VOD) 시청자수")
 
-    # ===== [신규] 탭 2: 더미 탭 (시각적 구분) =====
+    # ===== [기존] 탭 2: 더미 탭 (시각적 구분) =====
     if dummy_tab:
         with dummy_tab:
-            # [수정] 1. 탭 서브 타이틀 제거
-            # st.markdown("### 👥 시청자 반응 브리핑")
             st.info("이 탭은 '성과 자세히보기'와 '시청자 반응' 상세 탭을 구분하기 위한 시각적 구분선입니다. 우측의 탭에서 상세 데이터를 확인하세요.")
 
-    # ===== [신규] 탭 3, 4...: 임베딩된 G-Sheet =====
-    # [수정] zip을 사용하여 올바른 탭 위젯과 탭 데이터를 매칭
+    # ===== [기존] 탭 3, 4...: 임베딩된 G-Sheet =====
     for tab_widget, tab_info in zip(sheet_tabs_widgets, embeddable_tabs):
         with tab_widget:
             
-            # [수정] 1. 탭 서브 타이틀 제거
-            # st.markdown(f"### {tab_info['title']}")
+            # [수정] 탭 서브 타이틀 제거
             
-            # [수정] 4. 캡션 텍스트 및 hr 제거 (반영됨)
-            # st.caption(f"이 탭은 '방영중' 시트(D열)에 등록된 '웹에 게시' URL을 기반으로 생성되었습니다.")
-            # st.markdown("---")
+            # [수정] 캡션 텍스트 및 hr 제거
             
-            # [수정] render_published_url 함수 사용
-            render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
+            render_published_url(tab_info["url"]) 
 
 #endregion
 
-#region [ 8. 메인 실행 ]
+
+#region [ 8. [신규] 메인 실행 (URL 라우팅) ]
 # =====================================================
-# [수정] 관리자 모드 및 selected_ip_url 세션 스테이트 제거
 
-# --- 1. 세션 스테이트 초기화 ---
-if "selected_ip" not in st.session_state:
-    st.session_state.selected_ip = None # 사이드바에서 선택한 IP
+def main():
+    # --- 1. URL에서 현재 선택된 IP 확인 ---
+    # st.query_params는 딕셔너리처럼 동작하며, URL의 ?ip=... 값을 가져옴
+    selected_ip = st.query_params.get("ip", [None])[0]
 
-# --- 2. 사이드바 타이틀 렌더링 ---
-# (스크립트 상단 Region 1-1 에서 자동으로 실행됨)
+    if selected_ip:
+        # --- 2. IP가 선택된 경우 (e.g., ?ip=눈물의여왕) ---
+        
+        # [신규] '방영중' 탭(A,B,C,D열)의 GSheet 임베딩 정보 로드
+        on_air_data = load_processed_on_air_data()
+        
+        # 'IP 성과 자세히보기' 페이지 렌더링
+        render_ip_detail(selected_ip, on_air_data)
+        
+    else:
+        # --- 3. IP가 선택되지 않은 경우 (기본 URL) ---
+        
+        # '포털 페이지' 렌더링
+        render_portal_page()
 
-# --- 3. '방영중' 데이터 로드 (A, B, C, D열 처리) ---
-# [수정] API로 GID를 찾아 최종 URL 맵을 생성하는 메인 함수 호출
-on_air_data = load_processed_on_air_data() # [ 3. 공통 함수 ]
-
-# --- 4. 사이드바 네비게이션 렌더링 ---
-# [수정] 딕셔너리의 Key 리스트(고유 IP 목록)만 전달
-render_sidebar_navigation(list(on_air_data.keys())) # [ 4. 사이드바 ... ] 함수 호출
-
-# --- 5. 메인 페이지 렌더링 ---
-current_selected_ip = st.session_state.get("selected_ip", None)
-
-if current_selected_ip:
-    # 선택된 IP가 있으면 해당 IP의 상세 페이지를 렌더링
-    # [수정] 선택된 IP와 '방영중' 탭 전체 데이터를 전달
-    render_ip_detail(current_selected_ip, on_air_data) # [ 7. 페이지 2 ... ] 함수 호출
-else:
-    # 선택된 IP가 없으면 안내 메시지 표시 (e.g. '방영중' 탭이 비어있을 경우)
-    st.markdown("## 📈 IP 성과 자세히보기")
-    st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
+if __name__ == "__main__":
+    main()
     
 #endregion
-
-
-
-
-
-
-
-
 
