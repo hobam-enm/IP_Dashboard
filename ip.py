@@ -1587,7 +1587,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # ===== [신규] 탭 2: 더미 탭 (시각적 구분) =====
     if dummy_tab:
         with dummy_tab:
-            st.markdown("### 👥 시청자 반응 브리핑")
             st.info("우측에서 회차를 선택해주세요")
 
     # ===== [신규] 탭 3, 4...: 임베딩된 G-Sheet =====
