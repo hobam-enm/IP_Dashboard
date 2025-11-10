@@ -31,7 +31,16 @@ st.set_page_config(
 #endregion
 
 
-#region [ 1-1. 입장게이트 - URL 토큰 지속 인증 ]
+#region [ 1-1. 사이드바 - 관리자 로그인 ]
+# =====================================================
+# [수정] 인증 관련 함수는 모두 삭제하고, 사이드바 UI와 관리자 로그인 폼으로 변경
+
+def _rerun():
+    """세션 상태 변경 후 페이지를 새로고침합니다."""
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
 
 with st.sidebar:
     st.markdown(
@@ -47,9 +56,32 @@ with st.sidebar:
         "<p class='sidebar-contact' style='font-size:12px; color:gray; text-align:center;'>문의 : 미디어)디지털마케팅팀 데이터파트</p>",
         unsafe_allow_html=True
     )
-    
-#endregion
 
+    st.markdown("---")
+    
+    # 관리자 모드 로그인
+    if not st.session_state.get("admin_mode", False):
+        st.markdown("###### 🔐 관리자 모드")
+        pwd = st.text_input("비밀번호", type="password", key="__admin_pwd__")
+        login_btn = st.button("로그인", use_container_width=True)
+        
+        if login_btn:
+            secret_pwd = st.secrets.get("DASHBOARD_PASSWORD")
+            if secret_pwd and pwd.strip() == str(secret_pwd).strip():
+                st.session_state.admin_mode = True
+                st.success("관리자 모드 활성화")
+                time.sleep(1)
+                _rerun()
+            else:
+                st.error("비밀번호가 일치하지 않습니다.")
+    else:
+        # 관리자 모드 활성화 시 로그아웃 버튼 표시
+        st.success("관리자 모드 활성화됨")
+        if st.button("로그아웃", use_container_width=True, type="secondary"):
+            st.session_state.admin_mode = False
+            _rerun()
+
+#endregion
 
 #region [ 2. 공통 스타일 통합 ]
 # =====================================================
@@ -512,10 +544,69 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 #endregion
 
 
-#region [ 4. 사이드바 네비게이션 ]
+#region [ 4. 사이드바 - IP 네비게이션 & 관리자 UI ]
 # =====================================================
-# [수정] 원본의 Region 4 (사이드바 네비게이션) 전체 제거.
-# 인증 로직은 Region 1-1에, 사이드바 타이틀은 1-1 하단에 통합.
+def render_sidebar_navigation(df_full: pd.DataFrame):
+    """
+    [신규] st.session_state.pinned_ips를 기반으로 IP 네비게이션 버튼을 렌더링하고,
+    관리자 모드일 경우 IP 관리 UI를 렌더링합니다.
+    """
+    
+    # --- 1. IP 네비게이션 버튼 렌더링 ---
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("######  NAVIGATING")
+    
+    current_selected_ip = st.session_state.get("selected_ip", None)
+    pinned_ips = st.session_state.get("pinned_ips", [])
+    
+    if not pinned_ips:
+        st.sidebar.info("선택된 IP가 없습니다.\n관리자 모드에서 IP를 추가하세요.")
+
+    # 저장된 IP 목록으로 버튼 생성
+    for ip_name in pinned_ips:
+        is_active = (current_selected_ip == ip_name)
+        # 원본의 CSS 클래스를 재활용하기 위해 st.markdown 래퍼 사용
+        wrapper_cls = "nav-active" if is_active else "nav-inactive"
+        st.sidebar.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
+
+        clicked = st.sidebar.button(
+            ip_name,
+            key=f"navbtn__{ip_name}",
+            use_container_width=True,
+            type=("primary" if is_active else "secondary")
+        )
+        st.sidebar.markdown('</div>', unsafe_allow_html=True)
+        
+        if clicked and not is_active:
+            st.session_state.selected_ip = ip_name
+            _rerun() # _rerun은 Region 1-1에 정의됨
+
+    # --- 2. 관리자 UI 렌더링 (로그인 시) ---
+    if st.session_state.get("admin_mode", False):
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("###### ⚙️ IP 관리 (관리자)")
+        
+        all_ips = sorted(df_full["IP"].dropna().unique().tolist())
+        
+        # st.multiselect를 사용하여 현재 고정된 IP 목록을 관리
+        updated_pinned_ips = st.sidebar.multiselect(
+            "사이드바에 표시할 IP 선택",
+            options=all_ips,
+            default=pinned_ips, # 현재 저장된 IP 목록을 기본값으로
+            key="admin_ip_selector"
+        )
+        
+        if st.sidebar.button("저장", use_container_width=True, type="primary"):
+            st.session_state.pinned_ips = updated_pinned_ips
+            
+            # 만약 현재 선택된 IP가 저장 목록에서 제거되었다면, 선택 해제
+            if current_selected_ip and current_selected_ip not in updated_pinned_ips:
+                st.session_state.selected_ip = None
+            
+            st.sidebar.success("IP 목록이 저장되었습니다.")
+            time.sleep(1)
+            _rerun()
+
 #endregion
 
 
@@ -728,14 +819,15 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 #region [ 7. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
 # [수정] 원본 Region 8
-def render_ip_detail():
+def render_ip_detail(ip_selected: str): # [수정] ip_selected를 인자로 받음
 
     df_full = load_data() # [3. 공통 함수]
 
     filter_cols = st.columns([3, 2, 2])
 
     with filter_cols[0]:
-        st.markdown("<div class='page-title'>📈 IP 성과 자세히보기</div>", unsafe_allow_html=True)
+        # [수정] 페이지 타이틀을 h1/h2가 아닌 .page-title 클래스로 변경
+        st.markdown(f"<div class='page-title'>📈 {ip_selected} 성과 자세히보기</div>", unsafe_allow_html=True)
     with st.expander("ℹ️ 지표 기준 안내", expanded=False):
         st.markdown("<div class='gd-guideline'>", unsafe_allow_html=True)
         st.markdown(textwrap.dedent("""
@@ -749,15 +841,13 @@ def render_ip_detail():
         """).strip())
         st.markdown("</div>", unsafe_allow_html=True)
 
-    ip_options = sorted(df_full["IP"].dropna().unique().tolist())
-    with filter_cols[1]:
-        ip_selected = st.selectbox(
-            "IP (단일선택)",
-            ip_options,
-            index=0 if ip_options else None,
-            placeholder="IP 선택",
-            label_visibility="collapsed"
-        )
+    # [수정] IP 선택 st.selectbox 제거
+    # ip_options = sorted(df_full["IP"].dropna().unique().tolist())
+    # with filter_cols[1]:
+    #     ip_selected = st.selectbox(...)
+
+    with filter_cols[1]: # [수정] filter_cols[1]은 비워둠 (칸 유지를 위해)
+        pass
 
     with filter_cols[2]:
         selected_group_criteria = st.multiselect(
@@ -768,6 +858,9 @@ def render_ip_detail():
             label_visibility="collapsed",
             key="ip_detail_group"
         )
+    
+    # --- [이하 'render_ip_detail' 함수의 나머지 코드는 원본과 동일하게 유지] ---
+    # (ip_selected 변수는 이미 함수 인자로 받아왔으므로 수정 필요 없음)
 
     if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
         date_col_for_filter = "방영시작일"
@@ -1420,5 +1513,49 @@ def render_ip_detail():
 
 #region [ 8. 메인 실행 ]
 # =====================================================
-render_ip_detail()
+# [수정] 인증 로직을 제거하고, 세션 스테이트 초기화 및 라우팅 로직으로 변경
+
+# --- 1. 세션 스테이트 초기화 ---
+if "admin_mode" not in st.session_state:
+    st.session_state.admin_mode = False
+if "pinned_ips" not in st.session_state:
+    st.session_state.pinned_ips = [] # 관리자가 추가한 IP 목록
+if "selected_ip" not in st.session_state:
+    st.session_state.selected_ip = None # 사이드바에서 선택한 IP
+
+# --- 2. 관리자 로그인 UI 렌더링 (사이드바) ---
+# [ 1-1. 사이드바 - 관리자 로그인 ] 영역의 UI가 여기서 실행됩니다.
+# (스크립트 상단 Region 1-1 에 정의됨)
+
+# --- 3. 데이터 로드 ---
+df_full = load_data() # [ 3. 공통 함수 ]
+
+# --- 4. 사이드바 네비게이션 & 관리자 UI 렌더링 ---
+if not df_full.empty:
+    render_sidebar_navigation(df_full) # [ 4. 사이드바 ... ] 함수 호출
+else:
+    # 데이터 로드 실패 시 (load_data 내부에서 st.error가 이미 호출됨)
+    if "gcp_service_account" in st.secrets: 
+        st.error("데이터 로드에 실패했습니다. (Region 3.1 확인)")
+    else: 
+        st.info("Streamlit Secrets 설정 중...")
+
+
+# --- 5. 메인 페이지 렌더링 ---
+current_selected_ip = st.session_state.get("selected_ip", None)
+
+if current_selected_ip:
+    # 선택된 IP가 있으면 해당 IP의 상세 페이지를 렌더링
+    render_ip_detail(current_selected_ip) # [ 7. 페이지 2 ... ] 함수 호출
+else:
+    # 선택된 IP가 없으면 안내 메시지 표시
+    st.markdown("## 📈 IP 성과 자세히보기")
+    if st.session_state.get("admin_mode", False):
+        st.info("⬅️ 왼쪽 사이드바 'IP 관리' 메뉴에서 IP를 추가하고, 원하는 IP를 선택하세요.")
+    else:
+        st.info("⬅️ 왼쪽 사이드바에서 조회할 IP를 선택하세요.")
+    
+    if not st.session_state.get("pinned_ips", []):
+         st.warning("표시할 IP가 없습니다. 관리자가 IP를 추가해야 합니다.")
+
 #endregion
