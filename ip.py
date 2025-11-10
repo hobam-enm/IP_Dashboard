@@ -356,7 +356,7 @@ def load_portal_data() -> List[Dict[str, str]]:
     - A열: IP명 (카드 제목)
     - E열: 이미지 URL (포스터)
     """
-    worksheet_name = "포털" # [신규] '포털'이라는 이름의 탭을 읽습니다.
+    worksheet_name = "방영중" # [신규] '포털'이라는 이름의 탭을 읽습니다.
     
     client = get_gspread_client()
     if client is None:
