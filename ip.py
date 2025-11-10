@@ -47,7 +47,7 @@ with st.sidebar:
         """
         <div class="page-title-wrap">
           <span class="page-title-emoji">📈</span>
-          <span class="page-title-main">IP 성과 자세히보기</span>
+          <span class="page-title-main">IP-시청자 반응 브리핑</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -895,53 +895,45 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]]):
     """
     [수정] ip_selected와 '방영중' 탭에서 처리된 최종 데이터를 인자로 받음
+    [수정] 탭 UI를 페이지 최상단으로 이동
     """
 
-    df_full = load_data() # [3. 공통 함수]
+    # ===== [수정] 1. 고정 페이지 타이틀 (항상 표시) =====
+    st.markdown(f"<div class='page-title'>📈 {ip_selected} 시청자 반응 브리핑</div>", unsafe_allow_html=True)
 
-    # [수정] 컬럼 레이아웃 [3, 2] (빈 박스 제거됨)
-    filter_cols = st.columns([3, 2])
-
-    with filter_cols[0]:
-        st.markdown(f"<div class='page-title'>📈 {ip_selected} 성과 자세히보기</div>", unsafe_allow_html=True)
-    with st.expander("ℹ️ 지표 기준 안내", expanded=False):
-        st.markdown("<div class='gd-guideline'>", unsafe_allow_html=True)
-        st.markdown(textwrap.dedent("""
-            **지표 기준**
-        - **시청률** `회차평균`: 전국 기준 가구 / 타깃(2049) 시청률
-        - **티빙 LIVE** `회차평균`: 업데이트 예정
-        - **티빙 QUICK** `회차평균`: 방영당일 VOD 시청 UV
-        - **티빙 VOD** `회차평균`: 방영일+1부터 +6까지 **6days** VOD UV
-        - **디지털 조회/언급량** `회차총합`: 방영주차(월~일) 내 총합
-        - **화제성 점수** `회차평균`: 방영기간 주차별 화제성 점수 평균
-        """).strip())
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with filter_cols[1]: # [수정] filter_cols[1]로 이동됨
-        selected_group_criteria = st.multiselect(
-            "비교 그룹 기준",
-            ["동일 편성", "방영 연도"],
-            default=["동일 편성"],
-            placeholder="비교 그룹 기준",
-            label_visibility="collapsed",
-            key="ip_detail_group"
-        )
-        
-    # ===== [신규] 탭 UI 구성 =====
+    # ===== [수정] 2. 탭 UI 구성 (페이지 상단) =====
     
-    # 1. 임베딩할 탭 목록 가져오기
-    # [수정] 인자로 받은 최종 데이터 맵에서 현재 IP의 탭 목록을 조회
+    # 2a. 임베딩할 탭 목록 가져오기
     embeddable_tabs = on_air_data.get(ip_selected, []) 
 
-    # 2. 탭 이름 목록 생성
+    # 2b. 탭 이름 목록 생성
     tab_titles = ["📈 성과 자세히보기"] + [tab["title"] for tab in embeddable_tabs]
 
-    # 3. 탭 생성
+    # 2c. 탭 생성
     main_tab, *sheet_tabs = st.tabs(tab_titles)
 
     # ===== 탭 1: 기존 성과 자세히보기 =====
     with main_tab:
+        
+        # [신규] 탭 서브 타이틀
+        st.markdown(f"### {tab_titles[0]}") 
+        
+        # [수정] '비교 그룹 기준' 필터를 탭 내부로 이동
+        # st.columns를 사용하여 레이아웃을 기존과 유사하게 (오른쪽 정렬 효과)
+        _col_spacer, col_filter = st.columns([3, 2])
+        with col_filter:
+            selected_group_criteria = st.multiselect(
+                "비교 그룹 기준",
+                ["동일 편성", "방영 연도"],
+                default=["동일 편성"],
+                placeholder="비교 그룹 기준",
+                label_visibility="collapsed",
+                key="ip_detail_group"
+            )
+        
         # --- [이하 'render_ip_detail'의 기존 로직을 main_tab 안에 배치] ---
+        
+        df_full = load_data() # [3. 공통 함수]
         
         if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
             date_col_for_filter = "방영시작일"
@@ -1011,11 +1003,12 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         else:
             base["회차_num"] = pd.to_numeric(base["회차"].str.extract(r"(\d+)", expand=False), errors="coerce")
 
-        st.markdown(
-            f"<div class='sub-title'>📺 {ip_selected} 성과 상세 리포트</div>",
-            unsafe_allow_html=True
-        )
-        st.markdown("---")
+        # [수정] 이 sub-title은 탭 이름으로 대체되었으므로 주석 처리 (또는 삭제)
+        # st.markdown(
+        #     f"<div class='sub-title'>📺 {ip_selected} 성과 상세 리포트</div>",
+        #     unsafe_allow_html=True
+        # )
+        st.markdown("---") # st.markdown("---") 대신 <hr> 사용
 
         # --- Metric Normalizer (페이지 2 전용) ---
         def _normalize_metric(s: str) -> str:
@@ -1594,14 +1587,18 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # [수정] zip을 사용하여 탭 위젯과 탭 데이터를 올바르게 매칭
     for tab_widget, tab_info in zip(sheet_tabs, embeddable_tabs):
         with tab_widget:
-            st.markdown(f"#### 📄 {tab_info['title']} (웹 게시본)")
+            
+            # [신규] 탭 서브 타이틀 (B열 이름)
+            st.markdown(f"### {tab_info['title']}")
+            
+            # [수정] 캡션 텍스트 정리
             st.caption(f"이 탭은 '방영중' 시트(D열)에 등록된 '웹에 게시' URL을 기반으로 생성되었습니다.")
             st.markdown("---")
+            
             # [수정] render_published_url 함수 사용
             render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
 
 #endregion
-
 
 #region [ 8. 메인 실행 ]
 # =====================================================
