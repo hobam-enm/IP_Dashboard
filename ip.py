@@ -1597,7 +1597,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         with dummy_tab:
             # [수정] 1. 탭 서브 타이틀 제거
             # st.markdown("### 👥 시청자 반응 브리핑")
-            st.info("이 탭은 '성과 자세히보기'와 '시청자 반응' 상세 탭을 구분하기 위한 시각적 구분선입니다. 우측의 탭에서 상세 데이터를 확인하세요.")
+            st.info("우측에서 조회를 원하는 회차를 선택해주세요.")
 
     # ===== [신규] 탭 3, 4...: 임베딩된 G-Sheet =====
     # [수정] zip을 사용하여 올바른 탭 위젯과 탭 데이터를 매칭
