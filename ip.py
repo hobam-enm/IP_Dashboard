@@ -419,6 +419,29 @@ pio.templates.default = 'dashboard_theme'
 #endregion
 
 
+#region [ 2.2. 사이드바 바닥 고정 스타일 ]
+# =====================================================
+# 사이드바를 세로 플렉스 컨테이너로 만들고, .sb-bottom을 아래에 붙인다.
+st.markdown("""
+<style>
+/* 사이드바 컨텐츠를 세로 플렉스 레이아웃으로 */
+section[data-testid="stSidebar"] .block-container{
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 100vh !important;
+}
+
+/* 최하단 고정 영역 */
+.sb-bottom{
+  margin-top: auto !important;
+  padding: 10px 8px 12px 8px !important;
+  background: transparent !important;
+}
+</style>
+""", unsafe_allow_html=True)
+#endregion
+
+
 #region [ 3. 공통 함수: 데이터 로드 / 유틸리티 ]
 # =====================================================
 
@@ -640,25 +663,42 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 
 
 #region [ 4. 사이드바 - IP 네비게이션 ]
+# =====================================================
 def render_sidebar_navigation(on_air_ips: List[str]):
     """
-    방영중 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
+    '방영중' 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
     클릭 시 session_state와 query_params를 동기화 후 rerun합니다.
+    또한 사이드바 최하단에 '데이터 새로고침' 버튼을 제공합니다.
     """
     st.sidebar.markdown("---")
-    st.sidebar.markdown("####  📡방영중")
+    st.sidebar.markdown("######  NAVIGATING")
 
     current_selected_ip = st.session_state.get("selected_ip", None)
 
     if not on_air_ips:
         st.sidebar.warning("'방영중' 탭(A열)에 IP가 없습니다.")
         st.session_state.selected_ip = None
+
+        # === 최하단: 데이터 새로고침 버튼 (IP 리스트가 없어도 항상 표시) ===
+        st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
+        st.sidebar.divider()
+        if st.sidebar.button("🔄 데이터 새로고침", use_container_width=True, key="btn_refresh_bottom"):
+            # 캐시 강제 무효화 후 즉시 rerun
+            try: st.cache_data.clear()
+            except Exception: pass
+            try: st.cache_resource.clear()
+            except Exception: pass
+            st.session_state["__last_refresh_ts__"] = int(time.time())
+            _rerun()
+        st.sidebar.markdown('</div>', unsafe_allow_html=True)
         return
 
+    # 선택 값 보정
     if current_selected_ip is None or current_selected_ip not in on_air_ips:
         st.session_state.selected_ip = on_air_ips[0]
         current_selected_ip = on_air_ips[0]
 
+    # IP 네비게이션 버튼들
     for ip_name in on_air_ips:
         is_active = (current_selected_ip == ip_name)
         wrapper_cls = "nav-active" if is_active else "nav-inactive"
@@ -673,19 +713,34 @@ def render_sidebar_navigation(on_air_ips: List[str]):
         st.sidebar.markdown('</div>', unsafe_allow_html=True)
 
         if clicked and not is_active:
-            # 1. 세션 상태 갱신
+            # 세션 상태 갱신
             st.session_state.selected_ip = ip_name
-
-            # 2. 안전한 URL 파라미터 업데이트
+            # 안전한 URL 파라미터 업데이트
             try:
                 st.query_params.update(ip=ip_name)
             except AttributeError:
                 st.experimental_set_query_params(ip=ip_name)
-
-            # 3. 즉시 rerun
+            # 즉시 리렌더
             _rerun()
-#endregion
 
+    # === 최하단: 데이터 새로고침 버튼 ===
+    st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
+    st.sidebar.divider()
+    if st.sidebar.button("🔄 데이터 새로고침", use_container_width=True, key="btn_refresh_bottom_ok"):
+        # 캐시 강제 무효화 후 즉시 rerun
+        try: st.cache_data.clear()
+        except Exception: pass
+        try: st.cache_resource.clear()
+        except Exception: pass
+        st.session_state["__last_refresh_ts__"] = int(time.time())
+        _rerun()
+
+    # (선택) 마지막 새로고침 시각 간단 표기
+    ts = st.session_state.get("__last_refresh_ts__")
+    if ts:
+        st.sidebar.caption(f"마지막 갱신: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))}")
+    st.sidebar.markdown('</div>', unsafe_allow_html=True)
+#endregion
 
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
 # =====================================================
