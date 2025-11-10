@@ -31,107 +31,6 @@ st.set_page_config(
 #endregion
 
 
-#region [ 1-1. 입장게이트 - URL 토큰 지속 인증 ]
-# =====================================================
-# (이 영역은 원본과 동일하게 유지됩니다)
-AUTH_TTL = 12*3600
-AUTH_QUERY_KEY = "auth"
-
-def _rerun():
-    if hasattr(st, "rerun"):
-        st.rerun()
-    else:
-        st.experimental_rerun()
-
-@st.cache_resource
-def _auth_store():
-    return {}
-
-def _now() -> int:
-    return int(time.time())
-
-def _issue_token() -> str:
-    return uuid.uuid4().hex
-
-def _set_auth_query(token: str):
-    try:
-        qp = st.query_params
-        qp[AUTH_QUERY_KEY] = token
-        st.query_params = qp
-    except Exception:
-        st.experimental_set_query_params(**{AUTH_QUERY_KEY: token})
-
-def _get_auth_query() -> Optional[str]:
-    qp = st.query_params
-    return qp.get(AUTH_QUERY_KEY)
-
-def _validate_token(token: str) -> bool:
-    store = _auth_store()
-    ent = store.get(token)
-    if not ent:
-        return False
-    if _now() - ent["ts"] > AUTH_TTL:
-        del store[token]
-        return False
-    return True
-
-def _persist_auth(token: str):
-    store = _auth_store()
-    store[token] = {"ts": _now()}
-
-def _logout():
-    token = _get_auth_query()
-    if token:
-        store = _auth_store()
-        store.pop(token, None)
-    try:
-        qp = st.query_params
-        if AUTH_QUERY_KEY in qp:
-            del qp[AUTH_QUERY_KEY]
-            st.query_params = qp
-    except Exception:
-        st.experimental_set_query_params()
-    st.session_state.clear()
-    _rerun()
-
-def check_password_with_token() -> bool:
-    token = _get_auth_query()
-    if token and _validate_token(token):
-        return True
-
-    with st.sidebar:
-        st.markdown("## 🔐 로그인")
-        pwd = st.text_input("비밀번호를 입력하세요", type="password", key="__pwd__")
-        login = st.button("로그인")
-
-    if login:
-        secret_pwd = st.secrets.get("DASHBOARD_PASSWORD")
-        if secret_pwd and isinstance(pwd, str) and pwd.strip() == str(secret_pwd).strip():
-            new_token = _issue_token()
-            _persist_auth(new_token)
-            _set_auth_query(new_token)
-            _rerun()
-        else:
-            st.sidebar.warning("비밀번호가 일치하지 않습니다.")
-    return False
-
-# [수정] 사이드바에 로그인 UI만 남기고, 페이지 네비게이션은 제거합니다.
-with st.sidebar:
-    st.markdown(
-        """
-        <div class="page-title-wrap">
-          <span class="page-title-emoji">📈</span>
-          <span class="page-title-main">IP 성과 자세히보기</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<p class='sidebar-contact' style='font-size:12px; color:gray; text-align:center;'>문의 : 미디어)디지털마케팅팀 데이터파트</p>",
-        unsafe_allow_html=True
-    )
-    
-#endregion
 
 
 #region [ 2. 공통 스타일 통합 ]
@@ -1503,9 +1402,5 @@ def render_ip_detail():
 
 #region [ 8. 메인 실행 ]
 # =====================================================
-if not check_password_with_token():
-    st.stop()
-
-# 인증이 통과되면 'IP 성과 자세히보기' 페이지를 렌더링합니다.
 render_ip_detail()
 #endregion
