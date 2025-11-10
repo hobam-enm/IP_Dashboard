@@ -581,11 +581,23 @@ def fmt(v, digits=3, intlike=False):
 
 # ===== [신규] 3.2b. G-Sheet 임베딩 렌더러 =====
 def render_google_sheet_embed(spreadsheet_url: str, gid: int):
-    """[신규] G-Sheet URL과 GID를 받아 iframe으로 임베딩합니다."""
+    """
+    [신규] G-Sheet URL과 GID를 받아 iframe으로 임베딩합니다.
+    [수정] /edit 분리 대신 정규식으로 ID를 추출하여 URL 구조 문제 해결
+    """
     try:
-        # URL에서 '/edit' 이후 부분을 제거하고 embed용 URL로 재조합
-        base_url = spreadsheet_url.split('/edit')[0]
-        embed_url = f"{base_url}/embed?gid={gid}&rm=minimal&chrome=false"
+        # 정규식을 사용하여 URL에서 Google Sheet ID 추출
+        # (예: "https://.../d/THIS_IS_THE_ID/...")
+        match = re.search(r"/d/([a-zA-Z0-9_-]+)", spreadsheet_url)
+        
+        if not match:
+            st.error(f"오류: '방영중' 탭 B열의 URL 형식이 올바르지 않습니다.\nURL: {spreadsheet_url}")
+            return
+
+        sheet_id = match.group(1)
+        
+        # [수정] 추출한 ID를 기반으로 항상 올바른 embed URL 생성
+        embed_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/embed?gid={gid}&rm=minimal&chrome=false"
         
         st.markdown(f"""
             <iframe
@@ -593,6 +605,7 @@ def render_google_sheet_embed(spreadsheet_url: str, gid: int):
                 style="width: 100%; height: 700px; border: 1px solid #e0e0e0; border-radius: 8px;"
             ></iframe>
             """, unsafe_allow_html=True)
+            
     except Exception as e:
         st.error(f"임베딩 URL 생성 중 오류: {e}")
 
