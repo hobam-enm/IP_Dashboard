@@ -929,12 +929,16 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # ===== 탭 1: 기존 성과 자세히보기 =====
     with main_tab:
         
-        # [수정] 1. '비교 그룹 기준' 필터 레이블 수정 및 컬럼 제거
+        # [수정] 1. 탭 서브 타이틀 제거
+        # st.markdown(f"### 📈 성과 자세히보기") 
+        
+        # [수정] 1, 3, 4. '비교 그룹 기준' 필터 수정 (default, placeholder)
         selected_group_criteria = st.multiselect(
+            "📊 비교 그룹 기준 선택", 
             ["동일 편성", "방영 연도"],
-         default=[],  # 기본값 없음
-         placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)", # 여기에 원하시는 문구
-         key="ip_detail_group",
+            default=[], # [수정] 3. 기본값 없음
+            placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)", # [수정] 4. 문구 추가
+            key="ip_detail_group"
         )
         
         # --- [이하 'render_ip_detail'의 기존 로직을 main_tab 안에 배치] ---
@@ -952,7 +956,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         if "회차_numeric" in f.columns:
             f["회차_num"] = pd.to_numeric(f["회차_numeric"], errors="coerce")
         else:
-            f["회차_num"] = pd.to_numeric(f["회차"].str.extract(r"(\d+)", expand="False"), errors="coerce")
+            f["회차_num"] = pd.to_numeric(f["회차"].str.extract(r"(\d+)", expand=False), errors="coerce")
 
         def _week_to_num(x: str):
             m = re.search(r"-?\d+", str(x))
@@ -994,13 +998,17 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             else:
                 st.warning(f"'{ip_selected}'의 연도 정보가 없어 '방영 연도' 기준은 제외됩니다.", icon="⚠️")
 
-        if not group_name_parts and selected_group_criteria:
+        # [수정] placeholder에 맞게 미선택 시 '전체'로 동작하도록 보완
+        if not selected_group_criteria:
+            group_name_parts.append("전체")
+            base = df_full.copy()
+        elif not group_name_parts and selected_group_criteria:
             st.warning("그룹핑 기준 정보 부족. 전체 데이터와 비교합니다.", icon="⚠️")
             group_name_parts.append("전체")
             base = df_full.copy()
         elif not group_name_parts:
-            group_name_parts.append("전체")
-            base = df_full.copy()
+             group_name_parts.append("전체")
+             base = df_full.copy()
 
         prog_label = " & ".join(group_name_parts) + " 평균"
 
@@ -1587,15 +1595,19 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # ===== [신규] 탭 2: 더미 탭 (시각적 구분) =====
     if dummy_tab:
         with dummy_tab:
-            st.info("우측에서 회차를 선택해주세요")
+            # [수정] 1. 탭 서브 타이틀 제거
+            # st.markdown("### 👥 시청자 반응 브리핑")
+            st.info("이 탭은 '성과 자세히보기'와 '시청자 반응' 상세 탭을 구분하기 위한 시각적 구분선입니다. 우측의 탭에서 상세 데이터를 확인하세요.")
 
     # ===== [신규] 탭 3, 4...: 임베딩된 G-Sheet =====
     # [수정] zip을 사용하여 올바른 탭 위젯과 탭 데이터를 매칭
     for tab_widget, tab_info in zip(sheet_tabs_widgets, embeddable_tabs):
         with tab_widget:
             
+            # [수정] 1. 탭 서브 타이틀 제거
+            # st.markdown(f"### {tab_info['title']}")
             
-            # [수정] 4. 캡션 텍스트 및 hr 제거
+            # [수정] 4. 캡션 텍스트 및 hr 제거 (반영됨)
             # st.caption(f"이 탭은 '방영중' 시트(D열)에 등록된 '웹에 게시' URL을 기반으로 생성되었습니다.")
             # st.markdown("---")
             
