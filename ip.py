@@ -1,7 +1,10 @@
-# 📈 IP 성과 포털 — v3.0 (Portal + Detail)
+# 📈 드라마 주간 시청자 반응 브리핑 — v3.1 (Portal + Detail)
 # 1. 'front.py'의 포털 UI를 메인 페이지로 사용
 # 2. 'ip.py'의 상세 분석 페이지를 ?ip=... 파라미터로 라우팅
 # 3. 사이드바 제거
+# 4. [수정] 비밀번호 게이트 제거
+# 5. [수정] 포털 카드 IP 중복 시 1개만 생성
+# 6. [수정] 사이트명 변경
 
 #region [ 1. 라이브러리 임포트 ]
 # =====================================================
@@ -9,7 +12,7 @@ import re
 from typing import List, Dict, Any, Optional 
 import time, uuid
 import textwrap
-import hmac # [신규] 인증용
+# [수정] hmac 임포트 제거
 import urllib.parse # [신규] URL 인코딩용
 
 import numpy as np
@@ -29,42 +32,16 @@ from google.oauth2.service_account import Credentials
 #region [ 1-0. 페이지 설정 — 반드시 첫 번째 Streamlit 명령 ]
 # =====================================================
 st.set_page_config(
-    page_title="드라마 데이터 포털", # [수정] 포털 타이틀
+    page_title="드라마 주간 시청자 반응 브리핑", # [수정] 사이트명 변경
     page_icon="🧭",
     layout="wide",
-    # [수정] initial_sidebar_state 제거 (사이드바 없음)
 )
 #endregion
 
 
 #region [ 1-1. [신규] 포털 인증 ]
 # =====================================================
-# (front.py의 인증 로직)
-
-PW_SECRET = st.secrets.get("auth", {}).get("frontpage_password")
-TOKEN_SECRET = st.secrets.get("auth", {}).get("token")
-
-def _qs_key() -> str:
-    # [수정] st.query_params 사용 (최신)
-    try:
-        return st.query_params.get("key", "")
-    except Exception:
-        return "" # 폴백
-
-_qs = _qs_key()
-if TOKEN_SECRET and _qs and hmac.compare_digest(str(_qs), str(TOKEN_SECRET)):
-    st.session_state["_authed"] = True
-
-if not st.session_state.get("_authed", False):
-    st.markdown("### 🔐 드라마 데이터 포털 접근 권한 필요")
-    pw = st.text_input("비밀번호를 입력하세요", type="password", placeholder="••••••••")
-    if st.button("입장"):
-        if PW_SECRET and hmac.compare_digest(str(pw), str(PW_SECRET)):
-            st.session_state["_authed"] = True
-            st.rerun()
-        else:
-            st.error("비밀번호가 올바르지 않습니다.")
-    st.stop() # 인증되지 않으면 앱 실행 중지
+# [수정] 3. 비밀번호 게이트 전체 삭제
 #endregion
 
 
@@ -184,10 +161,6 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 }
 
 /* --- [사이드바] 관련 스타일 전체 삭제 --- */
-/* section[data-testid="stSidebar"] { ... } 삭제 */
-/* div[data-testid="collapsedControl"] { ... } 삭제 */
-/* .page-title-wrap { ... } (사이드바용) 삭제 */
-/* ... 등등 ... */
 
 
 /* --- [컴포넌트] KPI 카드 --- */
@@ -328,6 +301,7 @@ pio.templates.default = 'dashboard_theme'
 # =====================================================
 #endregion
 
+
 #region [ 3. 공통 함수: 데이터 로드 / 유틸리티 ]
 # =====================================================
 
@@ -355,8 +329,9 @@ def load_portal_data() -> List[Dict[str, str]]:
     [신규] 포털 페이지용 데이터를 GSheet '포털' 탭에서 로드합니다.
     - A열: IP명 (카드 제목)
     - E열: 이미지 URL (포스터)
+    - [수정] 1. IP명 중복 시 하나만 로드
     """
-    worksheet_name = "방영중" # [신규] '포털'이라는 이름의 탭을 읽습니다.
+    worksheet_name = "포털" # [신규] '포털'이라는 이름의 탭을 읽습니다.
     
     client = get_gspread_client()
     if client is None:
@@ -371,21 +346,22 @@ def load_portal_data() -> List[Dict[str, str]]:
         ips = worksheet.get_values('A2:A')
         imgs = worksheet.get_values('E2:E')
         
-        portal_list = []
+        portal_map = {} # [수정] 1. 중복제거를 위한 딕셔너리
+        
         # ips, imgs 중 더 짧은 길이를 기준으로 순회
         for i in range(min(len(ips), len(imgs))):
-            ip_name = ips[i][0].strip() if ips[i] else ""
-            img_url = imgs[i][0].strip() if imgs[i] else ""
+            ip_name = ips[i][0].strip() if (ips[i] and ips[i][0]) else ""
+            img_url = imgs[i][0].strip() if (imgs[i] and imgs[i][0]) else ""
             
-            # IP명과 이미지 URL이 모두 있어야 카드로 추가
-            if ip_name and img_url:
-                portal_list.append({
+            # [수정] 1. IP명과 이미지 URL이 모두 있고, 맵에 없는 경우에만 추가
+            if ip_name and img_url and ip_name not in portal_map:
+                portal_map[ip_name] = {
                     "ip": ip_name,
                     "img_url": img_url,
                     "desc": f"'{ip_name}' 상세 데이터 보기" # [신규] 카드 설명
-                })
+                }
         
-        return portal_list
+        return list(portal_map.values()) # [수정] 1. 딕셔너리의 값 리스트를 반환
 
     except gspread.exceptions.WorksheetNotFound:
         st.error(f"GSheet에 '{worksheet_name}' 탭을 찾을 수 없습니다. (A열=IP, E열=이미지URL)")
@@ -637,7 +613,8 @@ def render_portal_page():
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("<div class='grad-title'>드라마 데이터 포털</div>", unsafe_allow_html=True)
+    # [수정] 2. 사이트명 변경
+    st.markdown("<div class='grad-title'>드라마 주간 시청자 반응 브리핑</div>", unsafe_allow_html=True)
     st.markdown("<div class='grad-sub'>문의: 미디어)디지털마케팅팀 데이터파트</div>", unsafe_allow_html=True)
     st.write("")
     
@@ -743,7 +720,7 @@ def render_portal_page():
     <body>
 
     <div class="zone">
-      <div class="zone-title">IP 상세 분석</div>
+      <div class="zone-title">드라마별 상세분석</div>
 
       <div class="scroll-wrap">
         <div id="row1" class="row-scroll">
@@ -791,7 +768,7 @@ def render_portal_page():
 
       // 처음/끝에선 화살표 흐리게
       function updateArrows() {{
-        if (!row.parentElement.contains(row)) return; // [Fix]
+        if (!row || !row.parentElement || !row.parentElement.contains(row)) return; // [Fix]
         const atStart = row.scrollLeft <= 0;
         const atEnd = row.scrollLeft + row.clientWidth >= row.scrollWidth - 5; // [Fix]
         left.style.pointerEvents  = atStart ? 'none' : 'auto';
@@ -811,8 +788,10 @@ def render_portal_page():
 
     # --- 4. 포털 하단 푸터 (front.py) ---
     st.markdown("<hr style='margin-top:30px; opacity:.2;'>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; opacity:.65;'>© 드라마 데이터 포털</p>", unsafe_allow_html=True)
+    # [수정] 2. 사이트명 변경
+    st.markdown("<p style='text-align:center; opacity:.65;'>© 드라마 주간 시청자 반응 브리핑</p>", unsafe_allow_html=True)
 #endregion
+
 
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
 # =====================================================
@@ -878,7 +857,7 @@ def mean_of_ip_sums(df: pd.DataFrame, metric_name: str, media=None) -> float | N
 
 #region [ 6. 공통 집계 유틸: 데모  ]
 # =====================================================
-# (기존 ip.py Region 6과 동일)
+# (기존 ip.py Region 6, [수정] 4. 오타 수정)
 # ===== 6.1. 데모 문자열 파싱 유틸 =====
 def _gender_from_demo(s: str):
     """'데모' 문자열에서 성별(남/여/기타)을 추출합니다."""
@@ -944,6 +923,7 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
     )
 
     male = -pvt.get("남", pd.Series(0, index=pvt.index))
+    # [수정] 4. pvft -> pvt 오타 수정
     female = pvt.get("여", pd.Series(0, index=pvt.index))
 
     max_abs = float(max(male.abs().max(), female.max()) or 1)
@@ -974,6 +954,7 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
         textposition="inside",
         insidetextanchor="start",
         textfont=dict(color="#ffffff", size=12),
+        # [수정] 4. </T> -> </extra> 오타 수정
         hovertemplate="연령대=%{y}<br>여성=%{customdata[0]:,.0f}명<br>성별내 비중=%{customdata[1]:.1f}%<extra></extra>",
         customdata=np.column_stack([female, female_share])
     ))
@@ -1020,7 +1001,7 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 
 #region [ 7. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
-# (기존 ip.py Region 7, [신규] '포털로 돌아가기' 버튼 추가)
+# (기존 ip.py Region 7, [신규] '포털로 돌아가기' 버튼, [수정] 5. GSheet 탭 경고 추가)
 def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]]):
     """
     [기존] ip.py의 상세 페이지 렌더링 함수
@@ -1038,9 +1019,13 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # 2a. 임베딩할 탭 목록 가져오기
     embeddable_tabs = on_air_data.get(ip_selected, []) 
 
+    # [수정] 5. GSheet 탭 정보가 없는 경우 사용자에게 경고
+    if not embeddable_tabs:
+        st.warning(f"'{ip_selected}'에 대한 GSheet 임베딩 탭 정보가 '방영중' 시트에 없습니다. ('포털' 탭의 A열과 '방영중' 탭의 A열이 정확히 일치하는지 확인하세요.)", icon="⚠️")
+
     # 2b. [수정] 탭 이름 목록 생성 (더미 탭 포함)
     tab_titles = ["📈 성과 자세히보기"]
-    if embeddable_tabs:
+    if embeddable_tabs: # 탭 정보가 있을 때만 GSheet 탭들 추가
         tab_titles.append("👥 시청자 반응 브리핑") 
         tab_titles.extend([tab["title"] for tab in embeddable_tabs])
 
@@ -1741,6 +1726,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 # =====================================================
 
 def main():
+    # [수정] 3. 인증이 제거되었으므로 st.session_state 체크 불필요
+
     # --- 1. URL에서 현재 선택된 IP 확인 ---
     # st.query_params는 딕셔너리처럼 동작하며, URL의 ?ip=... 값을 가져옴
     selected_ip = st.query_params.get("ip", [None])[0]
@@ -1749,6 +1736,7 @@ def main():
         # --- 2. IP가 선택된 경우 (e.g., ?ip=눈물의여왕) ---
         
         # [신규] '방영중' 탭(A,B,C,D열)의 GSheet 임베딩 정보 로드
+        # (상세 페이지에서만 로드하도록 이동)
         on_air_data = load_processed_on_air_data()
         
         # 'IP 성과 자세히보기' 페이지 렌더링
@@ -1758,10 +1746,10 @@ def main():
         # --- 3. IP가 선택되지 않은 경우 (기본 URL) ---
         
         # '포털 페이지' 렌더링
+        # (포털 데이터는 render_portal_page 내부에서 로드)
         render_portal_page()
 
 if __name__ == "__main__":
     main()
     
 #endregion
-
