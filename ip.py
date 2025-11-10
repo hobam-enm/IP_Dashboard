@@ -331,7 +331,7 @@ def load_portal_data() -> List[Dict[str, str]]:
     - E열: 이미지 URL (포스터)
     - [수정] 1. IP명 중복 시 하나만 로드
     """
-    worksheet_name = "포털" # [신규] '포털'이라는 이름의 탭을 읽습니다.
+    worksheet_name = "방영중" # [신규] '포털'이라는 이름의 탭을 읽습니다.
     
     client = get_gspread_client()
     if client is None:
