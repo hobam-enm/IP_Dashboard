@@ -31,6 +31,24 @@ st.set_page_config(
 #endregion
 
 
+#region [ 1-1. 입장게이트 - URL 토큰 지속 인증 ]
+
+with st.sidebar:
+    st.markdown(
+        """
+        <div class="page-title-wrap">
+          <span class="page-title-emoji">📈</span>
+          <span class="page-title-main">IP 성과 자세히보기</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p class='sidebar-contact' style='font-size:12px; color:gray; text-align:center;'>문의 : 미디어)디지털마케팅팀 데이터파트</p>",
+        unsafe_allow_html=True
+    )
+    
+#endregion
 
 
 #region [ 2. 공통 스타일 통합 ]
