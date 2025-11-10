@@ -906,30 +906,44 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # 2a. 임베딩할 탭 목록 가져오기
     embeddable_tabs = on_air_data.get(ip_selected, []) 
 
-    # 2b. 탭 이름 목록 생성
-    tab_titles = ["📈 성과 자세히보기"] + [tab["title"] for tab in embeddable_tabs]
+    # 2b. [수정] 탭 생성 방식을 st.tab()으로 변경 (비활성 탭 추가)
+    main_tab = st.tab("📈 성과 자세히보기")
+    
+    # [신규] 2. G-Sheet에서 가져온 탭이 있을 경우에만 더미 탭과 G-Sheet 탭 추가
+    sheet_tabs_info = [] # G-Sheet 탭 위젯과 정보를 저장할 리스트
+    if embeddable_tabs:
+        # [신규] 2. 더미 탭 (시각적 구분용)
+        st.tab("👥 시청자 반응 브리핑", disabled=True) 
 
-    # 2c. 탭 생성
-    main_tab, *sheet_tabs = st.tabs(tab_titles)
+        # [신규] 2. G-Sheet 탭 목록 생성
+        for tab_info in embeddable_tabs:
+            tab_widget = st.tab(tab_info["title"])
+            # 위젯과 정보를 함께 저장
+            sheet_tabs_info.append({"widget": tab_widget, "info": tab_info})
+    
+    # [기존 코드 삭제]
+    # tab_titles = ["📈 성과 자세히보기"] + [tab["title"] for tab in embeddable_tabs]
+    # main_tab, *sheet_tabs = st.tabs(tab_titles)
 
     # ===== 탭 1: 기존 성과 자세히보기 =====
     with main_tab:
         
         # [신규] 탭 서브 타이틀
-        st.markdown(f"### {tab_titles[0]}") 
+        st.markdown(f"### 📈 성과 자세히보기") # [수정] 2. 탭 제목 일관성
         
-        # [수정] '비교 그룹 기준' 필터를 탭 내부로 이동
-        # st.columns를 사용하여 레이아웃을 기존과 유사하게 (오른쪽 정렬 효과)
-        _col_spacer, col_filter = st.columns([3, 2])
-        with col_filter:
-            selected_group_criteria = st.multiselect(
-                "비교 그룹 기준",
-                ["동일 편성", "방영 연도"],
-                default=["동일 편성"],
-                placeholder="비교 그룹 기준",
-                label_visibility="collapsed",
-                key="ip_detail_group"
-            )
+        # [수정] 1. '비교 그룹 기준' 필터를 탭 내부로, 컬럼 제거
+        selected_group_criteria = st.multiselect(
+            "📊 비교 그룹 기준 선택", # [수정] 1. 레이블 명시
+            ["동일 편성", "방영 연도"],
+            default=["동일 편성"],
+            key="ip_detail_group"
+            # [수정] 1. label_visibility="collapsed" 및 st.columns 제거
+        )
+        
+        # [기존 코드 삭제]
+        # _col_spacer, col_filter = st.columns([3, 2])
+        # with col_filter:
+        #    selected_group_criteria = st.multiselect(...)
         
         # --- [이하 'render_ip_detail'의 기존 로직을 main_tab 안에 배치] ---
         
@@ -1584,21 +1598,25 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         _render_aggrid_table(tving_numeric, "▶︎ TVING 합산 (LIVE/QUICK/VOD) 시청자수")
 
     # ===== [신규] 탭 2, 3...: 임베딩된 G-Sheet =====
-    # [수정] zip을 사용하여 탭 위젯과 탭 데이터를 올바르게 매칭
-    for tab_widget, tab_info in zip(sheet_tabs, embeddable_tabs):
+    # [수정] st.tab()으로 생성된 위젯과 정보를 순회
+    for tab_data in sheet_tabs_info:
+        tab_widget = tab_data["widget"]
+        tab_info = tab_data["info"]
+        
         with tab_widget:
             
             # [신규] 탭 서브 타이틀 (B열 이름)
             st.markdown(f"### {tab_info['title']}")
             
-            # [수정] 캡션 텍스트 정리
-            st.caption(f"이 탭은 '방영중' 시트(D열)에 등록된 '웹에 게시' URL을 기반으로 생성되었습니다.")
-            st.markdown("---")
+            # [수정] 4. 캡션 텍스트 및 hr 제거
+            # st.caption(f"이 탭은 '방영중' 시트(D열)에 등록된 '웹에 게시' URL을 기반으로 생성되었습니다.")
+            # st.markdown("---")
             
             # [수정] render_published_url 함수 사용
             render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
 
 #endregion
+
 
 #region [ 8. 메인 실행 ]
 # =====================================================
@@ -1632,3 +1650,12 @@ else:
     st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
     
 #endregion
+
+
+
+
+
+
+
+
+
