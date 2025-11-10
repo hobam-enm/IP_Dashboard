@@ -641,31 +641,25 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 
 #region [ 4. 사이드바 - IP 네비게이션 ]
 # =====================================================
-def render_sidebar_navigation(on_air_data: Dict[str, str]):
+def render_sidebar_navigation(on_air_ips: List[str]):
     """
-    [수정] '방영중' 탭에서 불러온 IP 목록(URL 포함)으로 네비게이션 버튼을 렌더링합니다.
+    [수정] '방영중' 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
     """
     
-    # --- 1. '방영중' IP 목록 불러오기 ---
-    # [수정] on_air_data (Dict)를 인자로 받음
-    on_air_ips = list(on_air_data.keys())
-
-    # --- 2. IP 네비게이션 버튼 렌더링 ---
+    # --- 1. '방영중' IP 목록 (A열) ---
     st.sidebar.markdown("---")
     st.sidebar.markdown("######  NAVIGATING")
     
     current_selected_ip = st.session_state.get("selected_ip", None)
     
     if not on_air_ips:
-        st.sidebar.warning("'방영중' 탭에 IP가 없습니다.")
+        st.sidebar.warning("'방영중' 탭(A열)에 IP가 없습니다.")
         st.session_state.selected_ip = None
-        st.session_state.selected_ip_url = None # [신규] URL도 초기화
         return
 
     # [수정] st.session_state.selected_ip가 None이거나 목록에 없으면, 첫 번째 IP로 강제 설정
     if current_selected_ip is None or current_selected_ip not in on_air_ips:
         st.session_state.selected_ip = on_air_ips[0]
-        st.session_state.selected_ip_url = on_air_data.get(on_air_ips[0]) # [신규] URL도 설정
         current_selected_ip = on_air_ips[0]
 
     # '방영중' IP 목록으로 버튼 생성
@@ -684,7 +678,6 @@ def render_sidebar_navigation(on_air_data: Dict[str, str]):
         
         if clicked and not is_active:
             st.session_state.selected_ip = ip_name
-            st.session_state.selected_ip_url = on_air_data.get(ip_name) # [신규] URL도 세션에 저장
             _rerun() # _rerun은 Region 1-1에 정의됨
     
 #endregion
