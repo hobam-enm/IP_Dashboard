@@ -501,15 +501,41 @@ def load_data() -> pd.DataFrame:
 
     return df
 
-# ===== 3.1b. [수정] '방영중' IP 및 URL 목록 로드 =====
+# ===== [신규] 3.1b. C열 URL에서 GID 맵 가져오기 (API) =====
 @st.cache_data(ttl=600)
-def load_on_air_ips_and_urls() -> Dict[str, str]:
+def get_tab_gids_from_sheet(edit_url: str) -> Dict[str, int]:
     """
-    [수정] '방영중' 탭에서 IP(A열)와 스프레드시트URL(B열)을 매핑한 딕셔너리를 반환합니다.
+    [신규] C열의 /edit URL을 API로 열어 {탭이름: GID} 딕셔너리를 반환합니다.
+    (주의: 서비스 계정이 이 edit_url 시트에 '뷰어'로 초대되어 있어야 합니다.)
     """
-    worksheet_name = "방영중" # [설정] '방영중' 탭 이름
+    client = get_gspread_client()
+    if client is None: 
+        return {}
+        
+    try:
+        spreadsheet = client.open_by_url(edit_url)
+        # 모든 탭을 순회하며 {탭이름: GID} 맵 생성
+        gid_map = {ws.title.strip(): ws.id for ws in spreadsheet.worksheets()}
+        return gid_map
+        
+    except gspread.exceptions.APIError as e:
+        st.error(f"시트 접근 오류(권한 확인 필요): C열의 URL을 열 수 없습니다.\nURL: {edit_url}\nError: {e}")
+        return {}
+    except Exception as e:
+        st.error(f"C열의 시트({edit_url}) GID 로드 중 오류: {e}")
+        return {}
+
+# ===== 3.1c. [수정] '방영중' 탭 (A,B,C,D열) 처리 =====
+@st.cache_data(ttl=600)
+def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
+    """
+    [수정] '방영중' 탭(A,B,C,D열)을 읽어 최종 임베딩 URL 맵을 생성합니다.
+    1. C열 URL로 GID 맵 가져오기 (get_tab_gids_from_sheet)
+    2. D열 URL에 B열 탭의 GID를 조합하여 최종 URL 생성
+    """
+    worksheet_name = "방영중"
     
-    client = get_gspread_client() # [수정] 캐시된 클라이언트 사용
+    client = get_gspread_client()
     if client is None:
         return {}
         
@@ -518,56 +544,59 @@ def load_on_air_ips_and_urls() -> Dict[str, str]:
         spreadsheet = client.open_by_key(sheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
         
-        # 'A2:B' 범위의 모든 값을 가져옵니다 (헤더 제외).
-        values = worksheet.get_values('A2:B')
+        # 'A2:D' 범위의 모든 값을 가져옵니다 (헤더 제외).
+        values = worksheet.get_values('A2:D') 
         
-        # A열(IP)과 B열(URL)을 딕셔너리로 매핑
-        ip_url_map = {
-            row[0].strip(): row[1].strip() 
-            for row in values 
-            if row and len(row) > 1 and row[0].strip() and row[1].strip()
-        }
-        return ip_url_map
+        # 1. A,B,C,D열 데이터를 IP별로 그룹화
+        config_map = {}
+        for row in values:
+            if row and len(row) > 3 and row[0].strip() and row[1].strip() and row[2].strip() and row[3].strip():
+                ip, tab_name, edit_url, pub_url = [s.strip() for s in row]
+                
+                if ip not in config_map:
+                    config_map[ip] = {
+                        "edit_url": edit_url, # C열 (GID 찾기용)
+                        "publish_url_base": pub_url.split('?')[0], # D열 (임베딩용, ?gid= 전까지)
+                        "tabs_to_process": [] # B열 (탭 이름 목록)
+                    }
+                config_map[ip]["tabs_to_process"].append(tab_name)
+
+        # 2. IP별로 GID를 찾아 최종 URL 조합
+        final_data_structure = {}
+        for ip, config in config_map.items():
+            final_data_structure[ip] = []
+            
+            # C열 URL로 API 호출하여 GID 맵 가져오기
+            gid_map = get_tab_gids_from_sheet(config["edit_url"]) 
+            
+            if not gid_map: # API 호출 실패 시 (권한 오류 등)
+                st.warning(f"'{ip}'의 GID를 C열 시트에서 가져오지 못했습니다. (권한 확인 필요)")
+                continue 
+
+            # B열의 탭 이름을 GID로 변환하고 D열 URL과 조합
+            for tab_name in config["tabs_to_process"]:
+                gid = gid_map.get(tab_name.strip())
+                
+                if gid is not None:
+                    # D열 URL 베이스 + 찾은 GID
+                    final_url = f"{config['publish_url_base']}?gid={gid}&single=true"
+                    
+                    # '사전 반응' 탭 우선 정렬
+                    if "사전 반응" in tab_name:
+                         final_data_structure[ip].insert(0, {"title": tab_name, "url": final_url})
+                    else:
+                         final_data_structure[ip].append({"title": tab_name, "url": final_url})
+                else:
+                    st.warning(f"'{ip}'의 시트(C열)에서 '{tab_name}'(B열) 탭을 찾을 수 없습니다.")
+
+        return final_data_structure
 
     except gspread.exceptions.WorksheetNotFound:
         st.sidebar.error(f"'{worksheet_name}' 탭을 찾을 수 없습니다.")
         return {}
     except Exception as e:
-        st.sidebar.error(f"'방영중' IP/URL 로드 오류: {e}")
+        st.sidebar.error(f"'방영중' 탭(A:D열) 로드 오류: {e}")
         return {}
-
-# ===== [신규] 3.1c. 임베딩할 탭 GID 가져오기 =====
-@st.cache_data(ttl=600)
-def get_embeddable_tabs(spreadsheet_url: str) -> List[Dict[str, Any]]:
-    """
-    [신규] G-Sheet URL을 받아, 임베딩할 탭(이름, GID) 목록을 반환합니다.
-    (조건: "화"로 끝나거나 "사전 반응" 포함)
-    """
-    client = get_gspread_client()
-    if client is None or not spreadsheet_url:
-        return []
-
-    tabs_to_embed = []
-    try:
-        spreadsheet = client.open_by_url(spreadsheet_url)
-        all_worksheets = spreadsheet.worksheets()
-        
-        for ws in all_worksheets:
-            title = ws.title
-            if title.endswith("화") or "사전 반응" in title:
-                tabs_to_embed.append({"title": title, "gid": ws.id})
-                
-        # "사전 반응" 탭을 우선순위로 정렬 (있을 경우)
-        tabs_to_embed.sort(key=lambda x: "사전 반응" not in x["title"])
-        return tabs_to_embed
-
-    except gspread.exceptions.APIError as e:
-        st.error(f"시트 접근 오류: URL이 잘못되었거나 '공유' 설정(뷰어)이 필요합니다.\n{e}")
-        return []
-    except Exception as e:
-        st.error(f"임베딩 탭 목록 로드 중 오류 발생: {e}")
-        return []
-
 
 # ===== 3.2. UI / 포맷팅 헬퍼 함수 =====
 
@@ -579,35 +608,16 @@ def fmt(v, digits=3, intlike=False):
         return "–"
     return f"{v:,.0f}" if intlike else f"{v:.{digits}f}"
 
-# ===== [신규] 3.2b. G-Sheet 임베딩 렌더러 =====
-def render_google_sheet_embed(spreadsheet_url: str, gid: int):
-    """
-    [신규] G-Sheet URL과 GID를 받아 iframe으로 임베딩합니다.
-    [수정] /edit 분리 대신 정규식으로 ID를 추출하여 URL 구조 문제 해결
-    """
-    try:
-        # 정규식을 사용하여 URL에서 Google Sheet ID 추출
-        # (예: "https://.../d/THIS_IS_THE_ID/...")
-        match = re.search(r"/d/([a-zA-Z0-9_-]+)", spreadsheet_url)
-        
-        if not match:
-            st.error(f"오류: '방영중' 탭 B열의 URL 형식이 올바르지 않습니다.\nURL: {spreadsheet_url}")
-            return
-
-        sheet_id = match.group(1)
-        
-        # [수정] 추출한 ID를 기반으로 항상 올바른 embed URL 생성
-        embed_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/embed?gid={gid}&rm=minimal&chrome=false"
-        
-        st.markdown(f"""
-            <iframe
-                src="{embed_url}"
-                style="width: 100%; height: 700px; border: 1px solid #e0e0e0; border-radius: 8px;"
-            ></iframe>
-            """, unsafe_allow_html=True)
-            
-    except Exception as e:
-        st.error(f"임베딩 URL 생성 중 오류: {e}")
+# ===== [수정] 3.2b. G-Sheet '게시용' URL 렌더러 =====
+def render_published_url(published_url: str):
+    """[수정] '웹에 게시'된 URL을 iframe으로 렌더링합니다. (URL 변환 X)"""
+    
+    st.markdown(f"""
+        <iframe
+            src="{published_url}"
+            style="width: 100%; height: 700px; border: 1px solid #e0e0e0; border-radius: 8px;"
+        ></iframe>
+        """, unsafe_allow_html=True)
 
 
 # ===== 3.3. 페이지 라우팅 / 데이터 헬퍼 함수 =====
@@ -627,6 +637,7 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
     
     return sub
 #endregion
+
 
 #region [ 4. 사이드바 - IP 네비게이션 ]
 # =====================================================
@@ -677,6 +688,7 @@ def render_sidebar_navigation(on_air_data: Dict[str, str]):
             _rerun() # _rerun은 Region 1-1에 정의됨
     
 #endregion
+
 
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
 # =====================================================
@@ -887,11 +899,14 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 #region [ 7. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
 # [수정] 원본 Region 8
-def render_ip_detail(ip_selected: str, ip_url: str): # [수정] ip_url 인자 추가
+def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]]):
+    """
+    [수정] ip_selected와 '방영중' 탭에서 처리된 최종 데이터를 인자로 받음
+    """
 
     df_full = load_data() # [3. 공통 함수]
 
-    # [수정] 컬럼 레이아웃을 [3, 2, 2] -> [3, 2]로 변경 (빈 박스 제거)
+    # [수정] 컬럼 레이아웃 [3, 2] (빈 박스 제거됨)
     filter_cols = st.columns([3, 2])
 
     with filter_cols[0]:
@@ -909,7 +924,7 @@ def render_ip_detail(ip_selected: str, ip_url: str): # [수정] ip_url 인자 �
         """).strip())
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with filter_cols[1]: # [수정] filter_cols[2] -> filter_cols[1]로 이동
+    with filter_cols[1]: # [수정] filter_cols[1]로 이동됨
         selected_group_criteria = st.multiselect(
             "비교 그룹 기준",
             ["동일 편성", "방영 연도"],
@@ -922,7 +937,8 @@ def render_ip_detail(ip_selected: str, ip_url: str): # [수정] ip_url 인자 �
     # ===== [신규] 탭 UI 구성 =====
     
     # 1. 임베딩할 탭 목록 가져오기
-    embeddable_tabs = get_embeddable_tabs(ip_url) # [ 3. 공통 함수 ]
+    # [수정] 인자로 받은 최종 데이터 맵에서 현재 IP의 탭 목록을 조회
+    embeddable_tabs = on_air_data.get(ip_selected, []) 
 
     # 2. 탭 이름 목록 생성
     tab_titles = ["📈 성과 자세히보기"] + [tab["title"] for tab in embeddable_tabs]
@@ -1582,48 +1598,47 @@ def render_ip_detail(ip_selected: str, ip_url: str): # [수정] ip_url 인자 �
         _render_aggrid_table(tving_numeric, "▶︎ TVING 합산 (LIVE/QUICK/VOD) 시청자수")
 
     # ===== [신규] 탭 2, 3...: 임베딩된 G-Sheet =====
-    for i, tab_widget in enumerate(sheet_tabs):
+    # [수정] zip을 사용하여 탭 위젯과 탭 데이터를 올바르게 매칭
+    for tab_widget, tab_info in zip(sheet_tabs, embeddable_tabs):
         with tab_widget:
-            tab_info = embeddable_tabs[i]
-            st.markdown(f"#### 📄 {tab_info['title']} (원본 데이터)")
-            st.caption(f"이 탭은 '{ip_selected}'의 원본 스프레드시트에서 '{tab_info['title']}' 탭을 직접 임베딩하여 보여줍니다.")
+            st.markdown(f"#### 📄 {tab_info['title']} (웹 게시본)")
+            st.caption(f"이 탭은 '방영중' 시트(D열)에 등록된 '웹에 게시' URL을 기반으로 생성되었습니다.")
             st.markdown("---")
-            render_google_sheet_embed(ip_url, tab_info["gid"]) # [ 3. 공통 함수 ]
+            # [수정] render_published_url 함수 사용
+            render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
 
 #endregion
 
+
 #region [ 8. 메인 실행 ]
 # =====================================================
-# [수정] 관리자 모드 관련 세션 스테이트 제거
+# [수정] 관리자 모드 및 selected_ip_url 세션 스테이트 제거
 
 # --- 1. 세션 스테이트 초기화 ---
 if "selected_ip" not in st.session_state:
     st.session_state.selected_ip = None # 사이드바에서 선택한 IP
-if "selected_ip_url" not in st.session_state:
-    st.session_state.selected_ip_url = None # [신규] 선택된 IP의 G-Sheet URL
 
 # --- 2. 사이드바 타이틀 렌더링 ---
 # (스크립트 상단 Region 1-1 에서 자동으로 실행됨)
 
-# --- 3. '방영중' 데이터 로드 ---
-on_air_data = load_on_air_ips_and_urls() # [ 3. 공통 함수 ]
+# --- 3. '방영중' 데이터 로드 (A, B, C, D열 처리) ---
+# [수정] API로 GID를 찾아 최종 URL 맵을 생성하는 메인 함수 호출
+on_air_data = load_processed_on_air_data() # [ 3. 공통 함수 ]
 
 # --- 4. 사이드바 네비게이션 렌더링 ---
-render_sidebar_navigation(on_air_data) # [ 4. 사이드바 ... ] 함수 호출
+# [수정] 딕셔너리의 Key 리스트(고유 IP 목록)만 전달
+render_sidebar_navigation(list(on_air_data.keys())) # [ 4. 사이드바 ... ] 함수 호출
 
 # --- 5. 메인 페이지 렌더링 ---
 current_selected_ip = st.session_state.get("selected_ip", None)
-current_selected_url = st.session_state.get("selected_ip_url", None) # [신규]
 
-if current_selected_ip and current_selected_url:
-    # 선택된 IP와 URL이 있으면 해당 IP의 상세 페이지를 렌더링
-    render_ip_detail(current_selected_ip, current_selected_url) # [ 7. 페이지 2 ... ] 함수 호출
-elif current_selected_ip and not current_selected_url:
-    # '방영중' 탭 A열엔 있으나 B열에 URL이 없는 경우
-    st.error(f"오류: '{current_selected_ip}'의 스프레드시트 URL이 '방영중' 탭(B열)에 없습니다.")
+if current_selected_ip:
+    # 선택된 IP가 있으면 해당 IP의 상세 페이지를 렌더링
+    # [수정] 선택된 IP와 '방영중' 탭 전체 데이터를 전달
+    render_ip_detail(current_selected_ip, on_air_data) # [ 7. 페이지 2 ... ] 함수 호출
 else:
     # 선택된 IP가 없으면 안내 메시지 표시 (e.g. '방영중' 탭이 비어있을 경우)
     st.markdown("## 📈 IP 성과 자세히보기")
-    st.error("오류: '방영중' 시트에 IP가 없습니다. 구글 시트를 확인하세요.")
+    st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
     
 #endregion
