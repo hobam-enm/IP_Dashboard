@@ -31,9 +31,9 @@ st.set_page_config(
 #endregion
 
 
-#region [ 1-1. 사이드바 - 관리자 로그인 ]
+#region [ 1-1. 사이드바 타이틀 ]
 # =====================================================
-# [수정] 인증 관련 함수는 모두 삭제하고, 사이드바 UI와 관리자 로그인 폼으로 변경
+# [수정] 인증 관련 함수는 모두 삭제하고, 사이드바 UI와 _rerun만 남깁니다.
 
 def _rerun():
     """세션 상태 변경 후 페이지를 새로고침합니다."""
@@ -56,30 +56,8 @@ with st.sidebar:
         "<p class='sidebar-contact' style='font-size:12px; color:gray; text-align:center;'>문의 : 미디어)디지털마케팅팀 데이터파트</p>",
         unsafe_allow_html=True
     )
-
-    st.markdown("---")
     
-    # 관리자 모드 로그인
-    if not st.session_state.get("admin_mode", False):
-        st.markdown("###### 🔐 관리자 모드")
-        pwd = st.text_input("비밀번호", type="password", key="__admin_pwd__")
-        login_btn = st.button("로그인", use_container_width=True)
-        
-        if login_btn:
-            secret_pwd = st.secrets.get("DASHBOARD_PASSWORD")
-            if secret_pwd and pwd.strip() == str(secret_pwd).strip():
-                st.session_state.admin_mode = True
-                st.success("관리자 모드 활성화")
-                time.sleep(1)
-                _rerun()
-            else:
-                st.error("비밀번호가 일치하지 않습니다.")
-    else:
-        # 관리자 모드 활성화 시 로그아웃 버튼 표시
-        st.success("관리자 모드 활성화됨")
-        if st.button("로그아웃", use_container_width=True, type="secondary"):
-            st.session_state.admin_mode = False
-            _rerun()
+    # [수정] 관리자 모드 로그인 UI 전체 삭제
 
 #endregion
 
@@ -1529,15 +1507,13 @@ def render_ip_detail(ip_selected: str): # [수정] ip_selected를 인자로 받�
 if "selected_ip" not in st.session_state:
     st.session_state.selected_ip = None # 사이드바에서 선택한 IP
 
-# --- 2. 관리자 로그인 UI 렌더링 (사이드바) ---
-# [수정] 관리자 모드 제거, [ 1-1 ]의 타이틀만 렌더링됩니다.
-# (스크립트 상단 Region 1-1 에 정의됨)
+# --- 2. 사이드바 타이틀 렌더링 ---
+# (스크립트 상단 Region 1-1 에서 자동으로 실행됨)
 
 # --- 3. 데이터 로드 ---
-# [수정] 사이드바 렌더링을 위해 load_data()가 더 이상 필요하지 않습니다.
 # (load_on_air_ips는 사이드바 함수 내부에서, load_data는 render_ip_detail 함수 내부에서 호출)
 
-# --- 4. 사이드바 네비게이션 & 관리자 UI 렌더링 ---
+# --- 4. 사이드바 네비게이션 렌더링 ---
 render_sidebar_navigation() # [ 4. 사이드바 ... ] 함수 호출
 
 # --- 5. 메인 페이지 렌더링 ---
@@ -1553,5 +1529,4 @@ else:
     st.error("오류: '방영중' 시트에 IP가 없습니다. 구글 시트를 확인하세요.")
     
 #endregion
-
 
