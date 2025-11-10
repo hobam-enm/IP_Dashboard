@@ -1,30 +1,33 @@
 
 # -*- coding: utf-8 -*-
-# 📈 페이지 2 — IP 성과 자세히보기 (Standalone, secrets 기반)
-# --------------------------------------------------
-# 실행: streamlit run ip_detail_page_secrets.py
+# 📈 페이지 2 — IP 성과 자세히보기 (Standalone, gspread+ServiceAccount, no fallback)
+# 실행: streamlit run ip_detail_page_gspread.py
 #
-# 🔐 secrets 설정 가이드 (아래 중 하나만 맞춰주면 됩니다)
-# 1) CSV_URL 직접 제공
-#    [secrets.toml]
-#    CSV_URL = "https://docs.google.com/spreadsheets/d/<SHEET_ID>/export?format=csv&gid=<GID>"
+# 🔐 필요한 secrets.toml (예시)
+# [sheets]
+# SHEET_ID = "<구글 시트 ID>"
+# RAW_GID  = "407131354"
 #
-# 2) SHEET_ID + RAW_GID 제공 (키 이름은 유연하게 감지)
-#    [secrets.toml]
-#    SHEET_ID = "<구글 시트 ID>"
-#    RAW_GID  = "407131354"
+# # 서비스계정 JSON 통째로 넣기 (권장)
+# gcp_service_account = """
+# {
+#   "type": "...",
+#   "project_id": "...",
+#   "private_key_id": "...",
+#   "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+#   "client_email": "...",
+#   "client_id": "...",
+#   "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+#   "token_uri": "https://oauth2.googleapis.com/token",
+#   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+#   "client_x509_cert_url": "..."
+# }
+# """
 #
-#    또는
-#    [sheets]
-#    SHEET_ID = "<구글 시트 ID>"
-#    RAW_GID  = "407131354"
-#
-#    또는
-#    SHEET_ID = "<구글 시트 ID>"
-#    gid      = "407131354"
-#
-# ※ 위 어떤 조합이든 자동 탐지해 CSV_URL을 구성합니다.
+# 또는 딕셔너리형으로
+# gcp_service_account = { ... }
 
+import json
 import re
 import textwrap
 from typing import List, Optional
@@ -34,25 +37,27 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+import gspread
+from google.oauth2.service_account import Credentials
+
 # =====================================================
 # 0) 페이지 설정
 # =====================================================
 st.set_page_config(
-    page_title="IP 성과 자세히보기 — 단일 페이지 (secrets)",
+    page_title="IP 성과 자세히보기 — 단일 페이지 (gspread)",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # =====================================================
-# 1) secrets 기반 CSV_URL 생성기
+# 1) 시크릿 로딩 (원본 방식과 동일: 서비스계정 + 시트ID/GID)
 # =====================================================
-def _get_from_nested(keys, default=None):
-    """st.secrets와 st.secrets['sheets']에서 유연하게 키 탐색"""
-    # 1차: 루트
+def _secrets_get(keys, default=None):
+    # 루트
     for k in keys:
         if k in st.secrets:
             return st.secrets.get(k)
-    # 2차: sheets 섹션
+    # 섹션 'sheets'
     sheets = st.secrets.get("sheets", {})
     if isinstance(sheets, dict):
         for k in keys:
@@ -60,28 +65,116 @@ def _get_from_nested(keys, default=None):
                 return sheets.get(k)
     return default
 
-def _csv_url_from_ids(sheet_id: str, gid: str) -> str:
-    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+def _load_service_account_info():
+    raw = _secrets_get(["gcp_service_account", "service_account", "google_service_account"])
+    if raw is None:
+        st.error("secrets.toml에 서비스계정 JSON(gcp_service_account) 설정이 필요합니다.")
+        st.stop()
+    if isinstance(raw, str):
+        raw = raw.strip()
+        try:
+            info = json.loads(raw)
+        except json.JSONDecodeError:
+            st.error("gcp_service_account 파싱 실패. 문자열이라면 유효한 JSON이어야 합니다.")
+            st.stop()
+    elif isinstance(raw, dict):
+        info = raw
+    else:
+        st.error("gcp_service_account 형식이 잘못되었습니다. 문자열 JSON 또는 딕셔너리여야 합니다.")
+        st.stop()
+    return info
 
-def resolve_csv_url() -> str:
-    # 1) CSV_URL 직접 정의되어 있으면 우선 사용
-    direct = _get_from_nested(["CSV_URL", "csv_url"])
-    if direct and isinstance(direct, str) and direct.startswith("http"):
-        return direct
-
-    # 2) SHEET_ID + RAW_GID로 구성
-    cand_sheet = _get_from_nested(["SHEET_ID", "sheet_id", "RAW_SHEET_ID"])
-    cand_gid   = _get_from_nested(["RAW_GID", "gid", "GID"])
-
-    if cand_sheet and cand_gid:
-        return _csv_url_from_ids(str(cand_sheet).strip(), str(cand_gid).strip())
-
-    # 3) 못 찾으면 에러
-    st.error("CSV_URL 또는 (SHEET_ID + RAW_GID)를 secrets.toml에 설정해 주세요.")
-    st.stop()
+def _sheet_ids():
+    sid = _secrets_get(["SHEET_ID", "sheet_id", "RAW_SHEET_ID"])
+    gid = _secrets_get(["RAW_GID", "gid", "GID"])
+    if not sid or not gid:
+        st.error("secrets.toml에 [sheets] SHEET_ID 와 RAW_GID 가 필요합니다.")
+        st.stop()
+    return str(sid).strip(), str(gid).strip()
 
 # =====================================================
-# 2) 공통 유틸
+# 2) gspread 클라이언트 & DataFrame 로더
+# =====================================================
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
+
+@st.cache_data(ttl=600, show_spinner=True)
+def load_raw_dataframe() -> pd.DataFrame:
+    sa_info = _load_service_account_info()
+    sheet_id, raw_gid = _sheet_ids()
+
+    creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+    gc = gspread.authorize(creds)
+
+    sh = gc.open_by_key(sheet_id)
+    # gid로 워크시트 찾기
+    ws = None
+    for w in sh.worksheets():
+        # gspread Worksheet.id는 정수 gid
+        if str(w.id) == str(raw_gid):
+            ws = w
+            break
+    if ws is None:
+        st.error(f"Sheet gid={raw_gid} 워크시트를 찾을 수 없습니다.")
+        st.stop()
+
+    values = ws.get_all_values()
+    if not values:
+        return pd.DataFrame()
+
+    header = values[0]
+    rows = values[1:]
+
+    # 헤더 정리: 공백이나 빈 헤더, 중복 헤더 방지
+    cleaned = []
+    seen = {}
+    for h in header:
+        name = (h or "").strip()
+        if not name:
+            name = "Unnamed"
+        # 중복 처리
+        cnt = seen.get(name, 0)
+        if cnt > 0:
+            newname = f"{name}.{cnt}"
+        else:
+            newname = name
+        seen[name] = cnt + 1
+        cleaned.append(newname)
+
+    df = pd.DataFrame(rows, columns=cleaned)
+
+    # 전처리 (원본 컨벤션 유지)
+    if "주차시작일" in df.columns:
+        df["주차시작일"] = pd.to_datetime(
+            df["주차시작일"].astype(str).str.strip(),
+            format="%Y. %m. %d",
+            errors="coerce",
+        )
+    if "방영시작일" in df.columns:
+        df["방영시작일"] = pd.to_datetime(
+            df["방영시작일"].astype(str).str.strip(),
+            format="%Y. %m. %d",
+            errors="coerce",
+        )
+    if "value" in df.columns:
+        v = df["value"].astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
+        df["value"] = pd.to_numeric(v, errors="coerce").fillna(0)
+
+    for c in ["IP", "편성", "지표구분", "매체", "데모", "metric", "회차", "주차", "세부속성1"]:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+
+    if "회차" in df.columns:
+        df["회차_numeric"] = df["회차"].str.extract(r"(\d+)", expand=False).astype(float)
+    else:
+        df["회차_numeric"] = pd.NA
+
+    return df
+
+# =====================================================
+# 3) 공통 유틸
 # =====================================================
 def fmt(v, digits=3, intlike=False):
     if v is None or pd.isna(v):
@@ -156,75 +249,11 @@ def mean_of_ip_sums(df: pd.DataFrame, metric_name: str, media: Optional[List[str
     per_ip_sum = sub.groupby("IP")["value"].sum()
     return float(per_ip_sum.mean()) if not per_ip_sum.empty else None
 
-def get_episode_options(df: pd.DataFrame) -> List[str]:
-    valid_options = []
-    if "회차_numeric" in df.columns:
-        unique_episodes_num = sorted([
-            int(ep) for ep in df["회차_numeric"].dropna().unique() if ep > 0
-        ])
-        if unique_episodes_num:
-            max_ep_num = unique_episodes_num[-1]
-            for ep_num in unique_episodes_num:
-                valid_options.append(str(ep_num))
-            last_ep_str_num = str(max_ep_num)
-            if last_ep_str_num in valid_options and valid_options[-1] != last_ep_str_num:
-                valid_options.remove(last_ep_str_num)
-                valid_options.append(last_ep_str_num + " (마지막화)")
-            elif last_ep_str_num not in valid_options:
-                valid_options.append(last_ep_str_num + " (마지막화)")
-            return valid_options
-        else:
-            return []
-    elif "회차" in df.columns:
-        raw_options = sorted(df["회차"].dropna().unique())
-        for opt in raw_options:
-            if not opt.startswith("00"):
-                cleaned_opt = re.sub(r"[화차]", "", opt)
-                if cleaned_opt.isdigit() and int(cleaned_opt) > 0:
-                    valid_options.append(cleaned_opt)
-        return sorted(list(set(valid_options)), key=lambda x: int(x) if x.isdigit() else float('inf'))
-    else:
-        return []
-
-# =====================================================
-# 3) 데이터 로더
-# =====================================================
-@st.cache_data(ttl=600, show_spinner=False)
-def load_data() -> pd.DataFrame:
-    csv_url = resolve_csv_url()
-    df = pd.read_csv(csv_url)
-    # 전처리 (원본 컨벤션 유지)
-    if "주차시작일" in df.columns:
-        df["주차시작일"] = pd.to_datetime(
-            df["주차시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce",
-        )
-    if "방영시작일" in df.columns:
-        df["방영시작일"] = pd.to_datetime(
-            df["방영시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce",
-        )
-    if "value" in df.columns:
-        v = df["value"].astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
-        df["value"] = pd.to_numeric(v, errors="coerce").fillna(0)
-
-    for c in ["IP", "편성", "지표구분", "매체", "데모", "metric", "회차", "주차", "세부속성1"]:
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
-
-    if "회차" in df.columns:
-        df["회차_numeric"] = df["회차"].str.extract(r"(\d+)", expand=False).astype(float)
-    else:
-        df["회차_numeric"] = pd.NA
-    return df
-
 # =====================================================
 # 4) 페이지 2 — IP 성과 자세히보기
 # =====================================================
 def render_ip_detail():
-    df_full = load_data()
+    df_full = load_raw_dataframe()
 
     # --- 제목/가이드
     filter_cols = st.columns([3, 2, 2])
