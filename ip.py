@@ -646,7 +646,7 @@ def render_sidebar_navigation(on_air_ips: List[str]):
     클릭 시 session_state와 query_params를 동기화 후 rerun합니다.
     """
     st.sidebar.markdown("---")
-    st.sidebar.markdown("######  방영중")
+    st.sidebar.markdown("####  📡방영중")
 
     current_selected_ip = st.session_state.get("selected_ip", None)
 
