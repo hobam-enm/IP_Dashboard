@@ -644,23 +644,22 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 def render_sidebar_navigation(on_air_ips: List[str]):
     """
     [수정] '방영중' 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
+    [수정] 클릭 시 session_state 대신 st.query_params를 변경하여 URL을 업데이트합니다.
     """
     
     # --- 1. '방영중' IP 목록 (A열) ---
     st.sidebar.markdown("---")
     st.sidebar.markdown("######  NAVIGATING")
     
-    current_selected_ip = st.session_state.get("selected_ip", None)
+    # [수정] 현재 IP는 Region 8에서 URL/세션 기준으로 이미 결정되어 st.session_state에 저장됨
+    current_selected_ip = st.session_state.get("selected_ip", None) 
     
     if not on_air_ips:
         st.sidebar.warning("'방영중' 탭(A열)에 IP가 없습니다.")
         st.session_state.selected_ip = None
         return
 
-    # [수정] st.session_state.selected_ip가 None이거나 목록에 없으면, 첫 번째 IP로 강제 설정
-    if current_selected_ip is None or current_selected_ip not in on_air_ips:
-        st.session_state.selected_ip = on_air_ips[0]
-        current_selected_ip = on_air_ips[0]
+    # [수정] Region 8에서 기본값 처리를 하므로, 여기서 별도 처리가 불필요함.
 
     # '방영중' IP 목록으로 버튼 생성
     for ip_name in on_air_ips:
@@ -677,11 +676,15 @@ def render_sidebar_navigation(on_air_ips: List[str]):
         st.sidebar.markdown('</div>', unsafe_allow_html=True)
         
         if clicked and not is_active:
-            st.session_state.selected_ip = ip_name
-            _rerun() # _rerun은 Region 1-1에 정의됨
+            # [수정] 클릭 시 URL 파라미터 변경 (st.query_params가 1.31+ 최신 버전)
+            try:
+                st.query_params["ip"] = ip_name 
+            except AttributeError:
+                st.experimental_set_query_params(ip=ip_name) # 구버전 폴백
+            
+            # [수정] _rerun() 호출 제거 (query_params 변경 시 자동 재실행됨)
     
 #endregion
-
 
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
 # =====================================================
@@ -1618,37 +1621,58 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 #region [ 8. 메인 실행 ]
 # =====================================================
-# [수정] 관리자 모드 및 selected_ip_url 세션 스테이트 제거
+# [수정] URL 파라미터를 기준으로 IP를 선택하도록 로직 변경
 
-# --- 1. 세션 스테이트 초기화 ---
+# --- 1. 세션 스테이트 초기화 (최소한으로 유지) ---
 if "selected_ip" not in st.session_state:
-    st.session_state.selected_ip = None # 사이드바에서 선택한 IP
+    st.session_state.selected_ip = None 
 
 # --- 2. 사이드바 타이틀 렌더링 ---
 # (스크립트 상단 Region 1-1 에서 자동으로 실행됨)
 
 # --- 3. '방영중' 데이터 로드 (A, B, C, D열 처리) ---
-# [수정] API로 GID를 찾아 최종 URL 맵을 생성하는 메인 함수 호출
 on_air_data = load_processed_on_air_data() # [ 3. 공통 함수 ]
+on_air_ips = list(on_air_data.keys()) # [신규] IP 리스트 미리 추출
 
-# --- 4. 사이드바 네비게이션 렌더링 ---
-# [수정] 딕셔너리의 Key 리스트(고유 IP 목록)만 전달
-render_sidebar_navigation(list(on_air_data.keys())) # [ 4. 사이드바 ... ] 함수 호출
+# --- [신규] 4. URL 파라미터에서 IP 읽기 및 현재 IP 결정 ---
+current_selected_ip = None
+try:
+    # st.query_params는 streamlit 1.31+
+    selected_ip_from_url = st.query_params.get("ip", [None])[0]
+except AttributeError:
+    # 구버전 폴백
+    selected_ip_from_url = st.experimental_get_query_params().get("ip", [None])[0]
 
-# --- 5. 메인 페이지 렌더링 ---
-current_selected_ip = st.session_state.get("selected_ip", None)
+if selected_ip_from_url and selected_ip_from_url in on_air_ips:
+    # URL에 유효한 IP가 있으면 그것을 사용
+    current_selected_ip = selected_ip_from_url
+elif on_air_ips: 
+    # URL에 IP가 없거나 잘못된 경우, 첫 번째 IP를 기본값으로
+    current_selected_ip = on_air_ips[0]
+# else: current_selected_ip는 None (IP가 아예 없는 경우)
 
+# [신규] 세션 스테이트와 URL 파라미터를 결정된 값으로 동기화
+st.session_state.selected_ip = current_selected_ip
+
+if current_selected_ip and (selected_ip_from_url != current_selected_ip):
+    # URL이 비어있었다면, 결정된 기본 IP로 URL을 업데이트
+    try:
+        st.query_params["ip"] = current_selected_ip 
+    except AttributeError:
+        st.experimental_set_query_params(ip=current_selected_ip) # 구버전 폴백
+
+# --- 5. 사이드바 네비게이션 렌더링 ---
+render_sidebar_navigation(on_air_ips) # [ 4. 사이드바 ... ] 함수 호출
+
+# --- 6. 메인 페이지 렌더링 ---
+# [수정] current_selected_ip는 4번 스텝에서 이미 결정됨
 if current_selected_ip:
-    # 선택된 IP가 있으면 해당 IP의 상세 페이지를 렌더링
-    # [수정] 선택된 IP와 '방영중' 탭 전체 데이터를 전달
     render_ip_detail(current_selected_ip, on_air_data) # [ 7. 페이지 2 ... ] 함수 호출
 else:
-    # 선택된 IP가 없으면 안내 메시지 표시 (e.g. '방영중' 탭이 비어있을 경우)
     st.markdown("## 📈 IP 성과 자세히보기")
     st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
     
 #endregion
-
 
 
 
