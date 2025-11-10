@@ -83,6 +83,7 @@ with st.sidebar:
 
 #endregion
 
+
 #region [ 2. 공통 스타일 통합 ]
 # =====================================================
 # (이 영역은 원본과 동일하게 유지됩니다)
@@ -508,6 +509,44 @@ def load_data() -> pd.DataFrame:
 
     return df
 
+# ===== 3.1b. [신규] '방영중' IP 목록 로드 =====
+@st.cache_data(ttl=600)
+def load_on_air_ips() -> List[str]:
+    """
+    [신규] '방영중' 탭에서 IP 목록을 불러옵니다.
+    """
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    worksheet_name = "방영중" # [설정] '방영중' 탭 이름
+    col_idx = 1 # [설정] IP 목록이 있는 컬럼 인덱스 (A열 = 1)
+    
+    try:
+        creds_info = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        
+        sheet_id = st.secrets["SHEET_ID"]
+        spreadsheet = client.open_by_key(sheet_id)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+        
+        # 'IP' 컬럼의 모든 값을 가져옵니다 (헤더 포함).
+        ip_list_raw = worksheet.col_values(col_idx)
+        
+        # 헤더(첫 번째 행)를 제외하고, 빈 값이 아닌 문자열만 필터링
+        if len(ip_list_raw) > 1:
+            ip_list = [
+                str(ip).strip() for ip in ip_list_raw[1:] if str(ip).strip()
+            ]
+            return ip_list
+        else:
+            return []
+
+    except gspread.exceptions.WorksheetNotFound:
+        st.sidebar.error(f"'방영중' 탭을 찾을 수 없습니다.")
+        return []
+    except Exception as e:
+        st.sidebar.error(f"'방영중' IP 로드 오류: {e}")
+        return []
+
 # ===== 3.2. UI / 포맷팅 헬퍼 함수 =====
 
 def fmt(v, digits=3, intlike=False):
@@ -518,14 +557,7 @@ def fmt(v, digits=3, intlike=False):
         return "–"
     return f"{v:,.0f}" if intlike else f"{v:.{digits}f}"
 
-# [수정] kpi() 함수는 이 페이지에서 사용되지 않으므로 제거
-# [수정] render_gradient_title() 함수는 이 페이지에서 사용되지 않으므로 제거
-
 # ===== 3.3. 페이지 라우팅 / 데이터 헬퍼 함수 =====
-
-# [수정] get_current_page_default() 함수 제거 (단독 페이지)
-# [수정] _set_page_query_param() 함수 제거 (단독 페이지)
-# [수정] get_episode_options() 함수 제거 (이 페이지에서 미사용)
 
 def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -544,26 +576,35 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 #endregion
 
 
-#region [ 4. 사이드바 - IP 네비게이션 & 관리자 UI ]
+#region [ 4. 사이드바 - IP 네비게이션 ]
 # =====================================================
-def render_sidebar_navigation(df_full: pd.DataFrame):
+def render_sidebar_navigation():
     """
-    [신규] st.session_state.pinned_ips를 기반으로 IP 네비게이션 버튼을 렌더링하고,
-    관리자 모드일 경우 IP 관리 UI를 렌더링합니다.
+    [수정] '방영중' 탭에서 불러온 IP 목록으로 네비게이션 버튼을 렌더링합니다.
     """
     
-    # --- 1. IP 네비게이션 버튼 렌더링 ---
+    # --- 1. '방영중' IP 목록 불러오기 ---
+    on_air_ips = load_on_air_ips() # [ 3. 공통 함수 ]
+
+    # --- 2. IP 네비게이션 버튼 렌더링 ---
     st.sidebar.markdown("---")
     st.sidebar.markdown("######  NAVIGATING")
     
     current_selected_ip = st.session_state.get("selected_ip", None)
-    pinned_ips = st.session_state.get("pinned_ips", [])
     
-    if not pinned_ips:
-        st.sidebar.info("선택된 IP가 없습니다.\n관리자 모드에서 IP를 추가하세요.")
+    if not on_air_ips:
+        st.sidebar.warning("'방영중' 탭에 IP가 없습니다.")
+        st.session_state.selected_ip = None # [수정] IP 목록이 없으면 선택 해제
+        return
 
-    # 저장된 IP 목록으로 버튼 생성
-    for ip_name in pinned_ips:
+    # [수정] st.session_state.selected_ip가 None이거나 목록에 없으면, 첫 번째 IP로 강제 설정
+    if current_selected_ip is None or current_selected_ip not in on_air_ips:
+        st.session_state.selected_ip = on_air_ips[0]
+        current_selected_ip = on_air_ips[0]
+        # _rerun() # 첫 로드 시에는 리런이 필요 없음 (메인 로직에서 처리)
+
+    # '방영중' IP 목록으로 버튼 생성
+    for ip_name in on_air_ips:
         is_active = (current_selected_ip == ip_name)
         # 원본의 CSS 클래스를 재활용하기 위해 st.markdown 래퍼 사용
         wrapper_cls = "nav-active" if is_active else "nav-inactive"
@@ -581,32 +622,9 @@ def render_sidebar_navigation(df_full: pd.DataFrame):
             st.session_state.selected_ip = ip_name
             _rerun() # _rerun은 Region 1-1에 정의됨
 
-    # --- 2. 관리자 UI 렌더링 (로그인 시) ---
-    if st.session_state.get("admin_mode", False):
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("###### ⚙️ IP 관리 (관리자)")
-        
-        all_ips = sorted(df_full["IP"].dropna().unique().tolist())
-        
-        # st.multiselect를 사용하여 현재 고정된 IP 목록을 관리
-        updated_pinned_ips = st.sidebar.multiselect(
-            "사이드바에 표시할 IP 선택",
-            options=all_ips,
-            default=pinned_ips, # 현재 저장된 IP 목록을 기본값으로
-            key="admin_ip_selector"
-        )
-        
-        if st.sidebar.button("저장", use_container_width=True, type="primary"):
-            st.session_state.pinned_ips = updated_pinned_ips
-            
-            # 만약 현재 선택된 IP가 저장 목록에서 제거되었다면, 선택 해제
-            if current_selected_ip and current_selected_ip not in updated_pinned_ips:
-                st.session_state.selected_ip = None
-            
-            st.sidebar.success("IP 목록이 저장되었습니다.")
-            time.sleep(1)
-            _rerun()
-
+    # [수정] 관리자 UI 섹션 전체 삭제
+    # if st.session_state.get("admin_mode", False): ...
+    
 #endregion
 
 
@@ -823,10 +841,10 @@ def render_ip_detail(ip_selected: str): # [수정] ip_selected를 인자로 받�
 
     df_full = load_data() # [3. 공통 함수]
 
-    filter_cols = st.columns([3, 2, 2])
+    # [수정] 컬럼 레이아웃을 [3, 2, 2] -> [3, 2]로 변경 (빈 박스 제거)
+    filter_cols = st.columns([3, 2])
 
     with filter_cols[0]:
-        # [수정] 페이지 타이틀을 h1/h2가 아닌 .page-title 클래스로 변경
         st.markdown(f"<div class='page-title'>📈 {ip_selected} 성과 자세히보기</div>", unsafe_allow_html=True)
     with st.expander("ℹ️ 지표 기준 안내", expanded=False):
         st.markdown("<div class='gd-guideline'>", unsafe_allow_html=True)
@@ -841,15 +859,9 @@ def render_ip_detail(ip_selected: str): # [수정] ip_selected를 인자로 받�
         """).strip())
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # [수정] IP 선택 st.selectbox 제거
-    # ip_options = sorted(df_full["IP"].dropna().unique().tolist())
-    # with filter_cols[1]:
-    #     ip_selected = st.selectbox(...)
+    # [수정] filter_cols[1]의 빈 공간 제거
 
-    with filter_cols[1]: # [수정] filter_cols[1]은 비워둠 (칸 유지를 위해)
-        pass
-
-    with filter_cols[2]:
+    with filter_cols[1]: # [수정] filter_cols[2] -> filter_cols[1]로 이동
         selected_group_criteria = st.multiselect(
             "비교 그룹 기준",
             ["동일 편성", "방영 연도"],
@@ -858,9 +870,6 @@ def render_ip_detail(ip_selected: str): # [수정] ip_selected를 인자로 받�
             label_visibility="collapsed",
             key="ip_detail_group"
         )
-    
-    # --- [이하 'render_ip_detail' 함수의 나머지 코드는 원본과 동일하게 유지] ---
-    # (ip_selected 변수는 이미 함수 인자로 받아왔으므로 수정 필요 없음)
 
     if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
         date_col_for_filter = "방영시작일"
@@ -1513,49 +1522,36 @@ def render_ip_detail(ip_selected: str): # [수정] ip_selected를 인자로 받�
 
 #region [ 8. 메인 실행 ]
 # =====================================================
-# [수정] 인증 로직을 제거하고, 세션 스테이트 초기화 및 라우팅 로직으로 변경
+# [수정] 관리자 모드 관련 세션 스테이트 제거
 
 # --- 1. 세션 스테이트 초기화 ---
-if "admin_mode" not in st.session_state:
-    st.session_state.admin_mode = False
-if "pinned_ips" not in st.session_state:
-    st.session_state.pinned_ips = [] # 관리자가 추가한 IP 목록
+# [수정] admin_mode, pinned_ips 제거
 if "selected_ip" not in st.session_state:
     st.session_state.selected_ip = None # 사이드바에서 선택한 IP
 
 # --- 2. 관리자 로그인 UI 렌더링 (사이드바) ---
-# [ 1-1. 사이드바 - 관리자 로그인 ] 영역의 UI가 여기서 실행됩니다.
+# [수정] 관리자 모드 제거, [ 1-1 ]의 타이틀만 렌더링됩니다.
 # (스크립트 상단 Region 1-1 에 정의됨)
 
 # --- 3. 데이터 로드 ---
-df_full = load_data() # [ 3. 공통 함수 ]
+# [수정] 사이드바 렌더링을 위해 load_data()가 더 이상 필요하지 않습니다.
+# (load_on_air_ips는 사이드바 함수 내부에서, load_data는 render_ip_detail 함수 내부에서 호출)
 
 # --- 4. 사이드바 네비게이션 & 관리자 UI 렌더링 ---
-if not df_full.empty:
-    render_sidebar_navigation(df_full) # [ 4. 사이드바 ... ] 함수 호출
-else:
-    # 데이터 로드 실패 시 (load_data 내부에서 st.error가 이미 호출됨)
-    if "gcp_service_account" in st.secrets: 
-        st.error("데이터 로드에 실패했습니다. (Region 3.1 확인)")
-    else: 
-        st.info("Streamlit Secrets 설정 중...")
-
+render_sidebar_navigation() # [ 4. 사이드바 ... ] 함수 호출
 
 # --- 5. 메인 페이지 렌더링 ---
 current_selected_ip = st.session_state.get("selected_ip", None)
 
 if current_selected_ip:
     # 선택된 IP가 있으면 해당 IP의 상세 페이지를 렌더링
+    # (내부에서 load_data() 호출)
     render_ip_detail(current_selected_ip) # [ 7. 페이지 2 ... ] 함수 호출
 else:
-    # 선택된 IP가 없으면 안내 메시지 표시
+    # 선택된 IP가 없으면 안내 메시지 표시 (e.g. '방영중' 탭이 비어있을 경우)
     st.markdown("## 📈 IP 성과 자세히보기")
-    if st.session_state.get("admin_mode", False):
-        st.info("⬅️ 왼쪽 사이드바 'IP 관리' 메뉴에서 IP를 추가하고, 원하는 IP를 선택하세요.")
-    else:
-        st.info("⬅️ 왼쪽 사이드바에서 조회할 IP를 선택하세요.")
+    st.error("오류: '방영중' 시트에 IP가 없습니다. 구글 시트를 확인하세요.")
     
-    if not st.session_state.get("pinned_ips", []):
-         st.warning("표시할 IP가 없습니다. 관리자가 IP를 추가해야 합니다.")
-
 #endregion
+
+
