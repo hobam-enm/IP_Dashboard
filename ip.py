@@ -1,12 +1,13 @@
 
 # -*- coding: utf-8 -*-
-# 📈 IP 성과 자세히보기 — 단독 실행판 (fixed quotes & imports)
+# 📈 IP 성과 자세히보기 — 단독 실행판 (with missing utils restored)
 
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 import gspread
@@ -25,24 +26,12 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-/* Title */
 .page-title { font-size: clamp(26px, 2.6vw, 36px); font-weight: 800; letter-spacing:-.02em; }
-/* KPI cards */
 .kpi-card{background:rgba(0,0,0,.03);border-radius:16px;padding:14px 16px;margin:4px 0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.04)}
 .kpi-title{font-size:12px;color:#475569;margin-bottom:8px;font-weight:700;letter-spacing:.02em}
 .kpi-value{font-size:22px;font-weight:800;letter-spacing:-.02em}
-/* Guideline text */
 .gd-guideline { font-size: 13px; line-height: 1.35; }
-.gd-guideline ul { margin: .2rem 0 .6rem 1.1rem; padding: 0; }
-.gd-guideline li { margin: .15rem 0; }
-.gd-guideline b, .gd-guideline strong { font-weight: 600; }
-.gd-guideline code{
-  background: rgba(16,185,129,.10);
-  color: #16a34a;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: .92em;
-}
+.gd-guideline code{ background: rgba(16,185,129,.10); color:#16a34a; padding: 1px 6px; border-radius: 6px; }
 </style>
 """,
     unsafe_allow_html=True
@@ -52,56 +41,30 @@ st.markdown(
 # ======================= [ 2. 데이터 로드 (gspread) ] =======================
 @st.cache_data(ttl=600)
 def load_data() -> pd.DataFrame:
-    """
-    Streamlit Secrets와 gspread를 사용하여 Google Sheet에서 데이터를 인증하고 로드합니다.
-    st.secrets에 'gcp_service_account', 'SHEET_ID', 'SHEET_NAME'이 있어야 합니다.
-    """
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
     ]
-    try:
-        creds_info = st.secrets["gcp_service_account"]
-        # 줄바꿈 보정
-        if isinstance(creds_info, dict) and "private_key" in creds_info:
-            pk = creds_info["private_key"]
-            if isinstance(pk, str):
-                creds_info = {**creds_info, "private_key": pk.replace("\n", "\n").replace("\\n", "\n")}
-        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
-        client = gspread.authorize(creds)
+    creds_info = st.secrets["gcp_service_account"]
+    if isinstance(creds_info, dict) and "private_key" in creds_info:
+        pk = creds_info["private_key"]
+        if isinstance(pk, str):
+            creds_info = {**creds_info, "private_key": pk.replace("\\n", "\n")}
+    creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+    client = gspread.authorize(creds)
 
-        sheet_id = st.secrets["SHEET_ID"]
-        worksheet_name = st.secrets["SHEET_NAME"]
-        spreadsheet = client.open_by_key(sheet_id)
-        worksheet = spreadsheet.worksheet(worksheet_name)
+    sheet_id = st.secrets["SHEET_ID"]
+    worksheet_name = st.secrets["SHEET_NAME"]
+    spreadsheet = client.open_by_key(sheet_id)
+    worksheet = spreadsheet.worksheet(worksheet_name)
 
-        data = worksheet.get_all_records()
-        df = pd.DataFrame(data)
+    df = pd.DataFrame(worksheet.get_all_records())
 
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"Streamlit Secrets의 SHEET_NAME 값 ('{worksheet_name}')에 해당하는 워크시트를 찾을 수 없습니다.")
-        return pd.DataFrame()
-    except KeyError as e:
-        st.error(f"Streamlit Secrets에 필요한 키({e})가 없습니다.")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Google Sheets 데이터 로드 중 오류 발생: {e}")
-        return pd.DataFrame()
-
-    # --- 전처리 (원본 규칙과 동일) ---
+    # 전처리
     if "주차시작일" in df.columns:
-        df["주차시작일"] = pd.to_datetime(
-            df["주차시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce"
-        )
+        df["주차시작일"] = pd.to_datetime(df["주차시작일"].astype(str).str.strip(), format="%Y. %m. %d", errors="coerce")
     if "방영시작일" in df.columns:
-        df["방영시작일"] = pd.to_datetime(
-            df["방영시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce"
-        )
-
+        df["방영시작일"] = pd.to_datetime(df["방영시작일"].astype(str).str.strip(), format="%Y. %m. %d", errors="coerce")
     if "value" in df.columns:
         v = df["value"].astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
         df["value"] = pd.to_numeric(v, errors="coerce").fillna(0)
@@ -119,6 +82,39 @@ def load_data() -> pd.DataFrame:
 
 
 # ======================= [ 3. 공통 유틸 ] =======================
+DEMO_COLS_ORDER: List[str] = [
+    # 남성
+    "남10대", "남20대", "남30대", "남40대", "남50대",
+    # 여성
+    "여10대", "여20대", "여30대", "여40대", "여50대",
+    # (있으면 처리될 추가 열)
+    "남전체", "여전체"
+]
+
+def _gender_from_demo(s: str) -> Optional[str]:
+    if not isinstance(s, str): return None
+    s = s.strip()
+    if s.startswith("남"): return "남"
+    if s.startswith("여"): return "여"
+    return None
+
+def _decade_label_clamped(s: str) -> Optional[str]:
+    if not isinstance(s, str): return None
+    m = re.search(r"(\d{2})대", s)
+    if m:
+        decade = int(m.group(1))
+        # 10~50대만 사용, 범위 밖은 가장 가까운 구간으로 클램프
+        decade = max(10, min(50, decade))
+        return f"{decade}대"
+    return None
+
+def _fmt_ep(x) -> str:
+    try:
+        n = int(float(x))
+        return f"{n}화"
+    except Exception:
+        return str(x)
+
 def fmt(v, digits=3, intlike=False):
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return "–"
@@ -135,7 +131,6 @@ def kpi(col, title, value):
 def _episode_col(df: pd.DataFrame) -> str:
     return "회차_numeric" if "회차_numeric" in df.columns else ("회차_num" if "회차_num" in df.columns else "회차")
 
-# 조회수 PGC/UGC 필터 통합
 def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
     sub = df[df["metric"] == "조회수"].copy()
     if sub.empty: return sub
@@ -187,29 +182,48 @@ def mean_of_ip_sums(df: pd.DataFrame, metric_name: str, media: Optional[List[str
     per_ip_sum = sub.groupby("IP")["value"].sum()
     return float(per_ip_sum.mean()) if not per_ip_sum.empty else None
 
-def mean_like_metric(df_ip: pd.DataFrame, metric_name: str) -> Optional[float]:
-    sub = df_ip[df_ip["metric"] == metric_name].copy()
-    if sub.empty: return None
-    ep_col = _episode_col(sub)
-    sub = sub.dropna(subset=[ep_col])
-    if sub.empty: return None
-    sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
-    sub = sub.dropna(subset=["value"])
-    if sub.empty: return None
-    ep_mean = sub.groupby(ep_col)["value"].mean()
-    return float(ep_mean.mean()) if not ep_mean.empty else None
 
-def min_rank_like(df_ip: pd.DataFrame) -> Optional[float]:
-    for col in ["F_Total", "F_rank", "rank"]:
-        sub = df_ip[df_ip["metric"] == col]
-        if not sub.empty:
-            vals = pd.to_numeric(sub["value"], errors="coerce").dropna()
-            if not vals.empty:
-                return float(vals.min())
-    return None
+# ======================= [ 4. 성별 피라미드 (보조 섹션) ] =======================
+def render_gender_pyramid(df_ip: pd.DataFrame, title: str = "성별/연령 피라미드"):
+    if "데모" not in df_ip.columns or "metric" not in df_ip.columns:
+        return
+    sub = df_ip[(df_ip["metric"] == "시청인구") & (df_ip["데모"].isin(DEMO_COLS_ORDER))].copy()
+    if sub.empty:
+        return
+    sub["gender"] = sub["데모"].map(_gender_from_demo)
+    sub["decade"] = sub["데모"].map(_decade_label_clamped)
+    sub["value"] = pd.to_numeric(sub["value"], errors="coerce")
+    sub = sub.dropna(subset=["gender", "decade", "value"])
+    if sub.empty:
+        return
+
+    # 남성은 음수로 뒤집어 피라미드 형태
+    sub.loc[sub["gender"] == "남", "plot_val"] = -sub.loc[sub["gender"] == "남", "value"]
+    sub.loc[sub["gender"] == "여", "plot_val"] = sub.loc[sub["gender"] == "여", "value"]
+
+    # 주차/회차 단위가 섞여 있을 수 있으니 전체 합계 기준
+    g = sub.groupby(["gender", "decade"], as_index=False)["plot_val"].sum()
+    g = g.sort_values("decade")
+
+    fig = go.Figure()
+    male = g[g["gender"] == "남"]
+    female = g[g["gender"] == "여"]
+    fig.add_bar(y=male["decade"], x=male["plot_val"], name="남성", orientation="h")
+    fig.add_bar(y=female["decade"], x=female["plot_val"], name="여성", orientation="h")
+
+    fig.update_layout(
+        title=title,
+        barmode="overlay",
+        height=420,
+        margin=dict(t=50, b=40, l=20, r=20),
+        xaxis_title=None, yaxis_title=None,
+    )
+    # x축 라벨을 절대값으로 보기 좋게
+    fig.update_xaxes(tickformat=",", tickvals=sorted(list(set(male["plot_val"].tolist() + female["plot_val"].tolist()))))
+    st.plotly_chart(fig, use_container_width=True)
 
 
-# ======================= [ 4. 페이지 본문 ] =======================
+# ======================= [ 5. 페이지 본문 ] =======================
 def render_ip_detail():
     df_full = load_data()
 
@@ -241,7 +255,7 @@ def render_ip_detail():
             label_visibility="collapsed"
         )
     with filter_cols[2]:
-        selected_group_criteria = st.multiselect(
+        st.multiselect(
             "비교 그룹 기준",
             ["동일 편성", "방영 연도"],
             default=["동일 편성"],
@@ -261,26 +275,21 @@ def render_ip_detail():
     vod = mean_of_ip_episode_sum(df_ip, "시청인구", ["TVING VOD"])
     views = mean_of_ip_sums(df_ip, "조회수")
     buzz = mean_of_ip_sums(df_ip, "언급량")
-    f_rank_best = min_rank_like(df_ip)
-    f_score_avg = mean_like_metric(df_ip, "F_score")
 
-    # ===== KPI 렌더 =====
-    krow1 = st.columns(5)
-    kpi(krow1[0], "타깃시청률", fmt(T, digits=3))
-    kpi(krow1[1], "가구시청률", fmt(H, digits=3))
-    kpi(krow1[2], "티빙라이브", fmt(live, intlike=True))
-    kpi(krow1[3], "티빙QUICK", fmt(quick, intlike=True))
-    kpi(krow1[4], "티빙 VOD", fmt(vod, intlike=True))
+    k1 = st.columns(5)
+    kpi(k1[0], "타깃시청률", fmt(T, digits=3))
+    kpi(k1[1], "가구시청률", fmt(H, digits=3))
+    kpi(k1[2], "티빙라이브", fmt(live, intlike=True))
+    kpi(k1[3], "티빙QUICK", fmt(quick, intlike=True))
+    kpi(k1[4], "티빙 VOD", fmt(vod, intlike=True))
 
-    krow2 = st.columns(4)
-    kpi(krow2[0], "총언급량", fmt(buzz, intlike=True))
-    kpi(krow2[1], "디지털조회수", fmt(views, intlike=True))
-    kpi(krow2[2], "최고화제성 순위", fmt(f_rank_best, digits=0, intlike=True) if f_rank_best is not None else "–")
-    kpi(krow2[3], "화제성점수", fmt(f_score_avg, digits=0, intlike=True) if f_score_avg is not None else "–")
+    k2 = st.columns(2)
+    kpi(k2[0], "총언급량", fmt(buzz, intlike=True))
+    kpi(k2[1], "디지털조회수", fmt(views, intlike=True))
 
     st.markdown("---")
 
-    # ===== 차트 1: 회차별 시청률 라인 (T/H) =====
+    # ===== 회차별 시청률 =====
     ep_col = _episode_col(df_ip)
     sub_rate = df_ip[df_ip["metric"].isin(["T시청률", "H시청률"])].dropna(subset=[ep_col]).copy()
     if not sub_rate.empty:
@@ -296,7 +305,7 @@ def render_ip_detail():
         fig_rate.update_layout(xaxis_title="회차", yaxis_title="시청률(%)")
         st.plotly_chart(fig_rate, use_container_width=True)
 
-    # ===== 차트 2: TVING 시청자 스택 (LIVE/QUICK/VOD, 회차) =====
+    # ===== TVING 시청자 스택 =====
     sub_tving = df_ip[(df_ip["metric"]=="시청인구") & (df_ip["매체"].isin(["TVING LIVE","TVING QUICK","TVING VOD"]))].dropna(subset=[ep_col]).copy()
     if not sub_tving.empty:
         sub_tving["value"] = pd.to_numeric(sub_tving["value"], errors="coerce")
@@ -309,10 +318,9 @@ def render_ip_detail():
         fig_tv.update_layout(barmode="stack", xaxis_title="회차", yaxis_title="시청자수")
         st.plotly_chart(fig_tv, use_container_width=True)
 
-    # ===== 차트 3: 디지털 조회/언급 (주차 스택) =====
-    sub_du = df_ip[(df_ip["metric"].isin(["조회수","언급량"])) & pd.notna(df_ip.get("주차시작일"))].copy()
-    if not sub_du.empty and "주차시작일" in sub_du.columns:
-        sub_view = _get_view_data(df_ip.copy())
+    # ===== 디지털 조회/언급 (주차) =====
+    sub_view = _get_view_data(df_ip.copy())
+    if "주차시작일" in df_ip.columns and (not sub_view.empty or not df_ip[df_ip["metric"]=="언급량"].empty):
         sub_view = sub_view[["주차시작일","value"]].assign(metric="조회수") if not sub_view.empty else pd.DataFrame(columns=["주차시작일","value","metric"])
         sub_buzz = df_ip[df_ip["metric"]=="언급량"][["주차시작일","value"]].assign(metric="언급량")
         sub_du2 = pd.concat([sub_view, sub_buzz], ignore_index=True)
@@ -328,22 +336,11 @@ def render_ip_detail():
             fig_du.update_layout(barmode="stack", xaxis_title="주차", yaxis_title="합계")
             st.plotly_chart(fig_du, use_container_width=True)
 
-    # ===== 차트 4: 화제성 점수 라인 (주차) =====
-    sub_fs = df_ip[(df_ip["metric"]=="F_score") & pd.notna(df_ip.get("주차시작일"))][["주차시작일","value"]].copy()
-    if not sub_fs.empty:
-        sub_fs["value"] = pd.to_numeric(sub_fs["value"], errors="coerce")
-        sub_fs = sub_fs.dropna(subset=["value","주차시작일"]).groupby("주차시작일", as_index=False)["value"].mean()
-        if not sub_fs.empty:
-            fig_fs = px.line(
-                sub_fs.sort_values("주차시작일"),
-                x="주차시작일", y="value", markers=True,
-                title=f"주차별 화제성 점수 — {ip_selected}"
-            )
-            fig_fs.update_layout(xaxis_title="주차", yaxis_title="점수")
-            st.plotly_chart(fig_fs, use_container_width=True)
+    # ===== 성별/연령 피라미드 =====
+    render_gender_pyramid(df_ip, title="성별/연령 피라미드 (전체 합계)")
 
 
-# ======================= [ 5. 엔트리 포인트 ] =======================
+# ======================= [ 6. 엔트리 포인트 ] =======================
 def main():
     render_ip_detail()
 
