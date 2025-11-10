@@ -934,7 +934,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         
         # [수정] 1, 3, 4. '비교 그룹 기준' 필터 수정 (default, placeholder)
         selected_group_criteria = st.multiselect(
-            "📊 비교 그룹 기준 선택", 
+            "", 
             ["동일 편성", "방영 연도"],
             default=[], # [수정] 3. 기본값 없음
             placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)", # [수정] 4. 문구 추가
