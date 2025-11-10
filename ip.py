@@ -1,18 +1,18 @@
-# 📈 드라마 주간 시청자 반응 브리핑 — v3.1 (Portal + Detail)
+# 📈 드라마 주간 시청자 반응 브리핑 — v3.2 (Portal + Detail)
 # 1. 'front.py'의 포털 UI를 메인 페이지로 사용
 # 2. 'ip.py'의 상세 분석 페이지를 ?ip=... 파라미터로 라우팅
 # 3. 사이드바 제거
 # 4. [수정] 비밀번호 게이트 제거
 # 5. [수정] 포털 카드 IP 중복 시 1개만 생성
 # 6. [수정] 사이트명 변경
+# 7. [수정] 모든 설정 데이터 소스를 '방영중' 탭으로 통합
 
 #region [ 1. 라이브러리 임포트 ]
 # =====================================================
 import re
-from typing import List, Dict, Any, Optional 
+from typing import List, Dict, Any, Optional, Tuple
 import time, uuid
 import textwrap
-# [수정] hmac 임포트 제거
 import urllib.parse # [신규] URL 인코딩용
 
 import numpy as np
@@ -32,7 +32,7 @@ from google.oauth2.service_account import Credentials
 #region [ 1-0. 페이지 설정 — 반드시 첫 번째 Streamlit 명령 ]
 # =====================================================
 st.set_page_config(
-    page_title="드라마 주간 시청자 반응 브리핑", # [수정] 사이트명 변경
+    page_title="드라마 주간 시청자 반응 브리핑", # [수정] 2. 사이트명 변경
     page_icon="🧭",
     layout="wide",
 )
@@ -322,60 +322,126 @@ def get_gspread_client():
         st.error(f"GSpread 클라이언트 인증 실패: {e}")
         return None
 
-# ===== [신규] 3.1a. 포털 데이터 로드 (A열, E열) =====
+# ===== [기존] 3.1b. C열 URL에서 GID 맵 가져오기 (API) =====
+# (load_master_config에서 사용되므로 먼저 정의)
 @st.cache_data(ttl=600)
-def load_portal_data() -> List[Dict[str, str]]:
+def get_tab_gids_from_sheet(edit_url: str) -> Dict[str, int]:
     """
-    [신규] 포털 페이지용 데이터를 GSheet '포털' 탭에서 로드합니다.
-    - A열: IP명 (카드 제목)
-    - E열: 이미지 URL (포스터)
-    - [수정] 1. IP명 중복 시 하나만 로드
+    [기존] C열의 /edit URL을 API로 열어 {탭이름: GID} 딕셔너리를 반환합니다.
     """
-    worksheet_name = "방영중" # [신규] '포털'이라는 이름의 탭을 읽습니다.
+    client = get_gspread_client()
+    if client is None: 
+        return {}
+        
+    try:
+        spreadsheet = client.open_by_url(edit_url)
+        # 모든 탭을 순회하며 {탭이름: GID} 맵 생성
+        gid_map = {ws.title.strip(): ws.id for ws in spreadsheet.worksheets()}
+        return gid_map
+        
+    except gspread.exceptions.APIError as e:
+        st.error(f"시트 접근 오류(권한 확인 필요): C열의 URL을 열 수 없습니다.\nURL: {edit_url}\nError: {e}")
+        return {}
+    except Exception as e:
+        st.error(f"C열의 시트({edit_url}) GID 로드 중 오류: {e}")
+        return {}
+
+# ===== [수정] 3.1. 마스터 설정 로드 (포털 + 임베딩) =====
+@st.cache_data(ttl=600)
+def load_master_config() -> Tuple[List[Dict[str, str]], Dict[str, List[Dict[str, str]]]]:
+    """
+    [신규] '방영중' 탭에서 모든 설정(포털, 임베딩)을 로드합니다.
+    - A열: IP명 (카드 제목, 중복 시 1개만)
+    - B열: GSheet 임베딩 탭 이름
+    - C열: GSheet 임베딩 Edit URL
+    - D열: GSheet 임베딩 Publish URL
+    - E열: 포스터 이미지 URL
+    
+    반환: (portal_list, embed_map) 튜플
+    """
+    worksheet_name = "방영중"
     
     client = get_gspread_client()
     if client is None:
-        return []
+        return [], {}
         
     try:
         sheet_id = st.secrets["SHEET_ID"]
         spreadsheet = client.open_by_key(sheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
         
-        # A열과 E열의 데이터만 가져옵니다 (A2:A, E2:E)
-        ips = worksheet.get_values('A2:A')
-        imgs = worksheet.get_values('E2:E')
+        # A, B, C, D, E열의 데이터만 가져옵니다 (A2:E)
+        values = worksheet.get_values('A2:E') 
         
-        portal_map = {} # [수정] 1. 중복제거를 위한 딕셔너리
-        
-        # ips, imgs 중 더 짧은 길이를 기준으로 순회
-        for i in range(min(len(ips), len(imgs))):
-            ip_name = ips[i][0].strip() if (ips[i] and ips[i][0]) else ""
-            img_url = imgs[i][0].strip() if (imgs[i] and imgs[i][0]) else ""
+        portal_map = {} # 1. 포털 카드용 (IP 중복 제거)
+        embed_config_map = {} # 2. GSheet 임베딩용 (IP별 설정)
+
+        for row in values:
+            # 셀이 5개 미만이면 빈 문자열로 채움
+            row.extend([""] * (5 - len(row)))
+            ip, tab_name, edit_url, pub_url, img_url = [s.strip() for s in row]
             
-            # [수정] 1. IP명과 이미지 URL이 모두 있고, 맵에 없는 경우에만 추가
-            if ip_name and img_url and ip_name not in portal_map:
-                portal_map[ip_name] = {
-                    "ip": ip_name,
+            # --- 1. 포털 카드 생성 (A열, E열) ---
+            # [수정] 1. IP명과 이미지 URL이 있고, 아직 추가안된 IP면 추가
+            if ip and img_url and ip not in portal_map:
+                portal_map[ip] = {
+                    "ip": ip,
                     "img_url": img_url,
-                    "desc": f"'{ip_name}' 상세 데이터 보기" # [신규] 카드 설명
+                    "desc": f"'{ip}' 상세 데이터 보기"
                 }
-        
-        return list(portal_map.values()) # [수정] 1. 딕셔너리의 값 리스트를 반환
+            
+            # --- 2. GSheet 임베딩 설정 (A, B, C, D열) ---
+            if ip and tab_name and edit_url and pub_url:
+                if ip not in embed_config_map:
+                    embed_config_map[ip] = {
+                        "edit_url": edit_url, 
+                        "publish_url_base": pub_url.split('?')[0],
+                        "tabs_to_process": [] 
+                    }
+                # edit_url이 여러개일 수 있으나, GID는 동일 시트에서 찾으므로 첫번째 값 사용
+                embed_config_map[ip]["tabs_to_process"].append(tab_name)
+
+        # --- 3. GSheet 임베딩 URL 조합 (기존 로직) ---
+        final_embed_map = {}
+        for ip, config in embed_config_map.items():
+            final_embed_map[ip] = []
+            
+            gid_map = get_tab_gids_from_sheet(config["edit_url"]) 
+            
+            if not gid_map: 
+                st.warning(f"'{ip}'의 GID를 C열 시트에서 가져오지 못했습니다. (권한 확인 필요)")
+                continue 
+
+            for tab_name in config["tabs_to_process"]:
+                gid = gid_map.get(tab_name.strip())
+                
+                if gid is not None:
+                    final_url = f"{config['publish_url_base']}?gid={gid}&single=true"
+                    
+                    if "사전 반응" in tab_name:
+                         final_embed_map[ip].insert(0, {"title": tab_name, "url": final_url})
+                    else:
+                         final_embed_map[ip].append({"title": tab_name, "url": final_url})
+                else:
+                    st.warning(f"'{ip}'의 시트(C열)에서 '{tab_name}'(B열) 탭을 찾을 수 없습니다.")
+
+        # --- 4. 최종 반환 ---
+        return list(portal_map.values()), final_embed_map
 
     except gspread.exceptions.WorksheetNotFound:
-        st.error(f"GSheet에 '{worksheet_name}' 탭을 찾을 수 없습니다. (A열=IP, E열=이미지URL)")
-        return []
+        st.error(f"GSheet에 '{worksheet_name}' 탭을 찾을 수 없습니다. (A,B,C,D,E열 필요)")
+        return [], {}
     except Exception as e:
-        st.error(f"'{worksheet_name}' 탭(A, E열) 로드 오류: {e}")
-        return []
+        st.error(f"'{worksheet_name}' 탭(A:E열) 로드 오류: {e}")
+        return [], {}
 
 
-# ===== 3.1. [기존] 상세페이지 데이터 로드 (gspread) =====
+# ===== 3.2. [기존] 상세페이지 데이터 로드 (gspread) =====
 @st.cache_data(ttl=600)
 def load_data() -> pd.DataFrame:
     """
     [기존] 'IP 성과 자세히보기'용 전체 데이터를 로드합니다.
+    (SHEET_NAME 시트를 읽음)
     """
     
     client = get_gspread_client() 
@@ -432,94 +498,7 @@ def load_data() -> pd.DataFrame:
 
     return df
 
-# ===== [기존] 3.1b. C열 URL에서 GID 맵 가져오기 (API) =====
-@st.cache_data(ttl=600)
-def get_tab_gids_from_sheet(edit_url: str) -> Dict[str, int]:
-    """
-    [기존] C열의 /edit URL을 API로 열어 {탭이름: GID} 딕셔너리를 반환합니다.
-    """
-    client = get_gspread_client()
-    if client is None: 
-        return {}
-        
-    try:
-        spreadsheet = client.open_by_url(edit_url)
-        # 모든 탭을 순회하며 {탭이름: GID} 맵 생성
-        gid_map = {ws.title.strip(): ws.id for ws in spreadsheet.worksheets()}
-        return gid_map
-        
-    except gspread.exceptions.APIError as e:
-        st.error(f"시트 접근 오류(권한 확인 필요): C열의 URL을 열 수 없습니다.\nURL: {edit_url}\nError: {e}")
-        return {}
-    except Exception as e:
-        st.error(f"C열의 시트({edit_url}) GID 로드 중 오류: {e}")
-        return {}
-
-# ===== 3.1c. [기존] '방영중' 탭 (A,B,C,D열) 처리 =====
-@st.cache_data(ttl=600)
-def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
-    """
-    [기존] '방영중' 탭(A,B,C,D열)을 읽어 최종 임베딩 URL 맵을 생성합니다.
-    """
-    worksheet_name = "방영중"
-    
-    client = get_gspread_client()
-    if client is None:
-        return {}
-        
-    try:
-        sheet_id = st.secrets["SHEET_ID"]
-        spreadsheet = client.open_by_key(sheet_id)
-        worksheet = spreadsheet.worksheet(worksheet_name)
-        
-        values = worksheet.get_values('A2:D') 
-        
-        config_map = {}
-        for row in values:
-            if row and len(row) > 3 and row[0].strip() and row[1].strip() and row[2].strip() and row[3].strip():
-                ip, tab_name, edit_url, pub_url = [s.strip() for s in row]
-                
-                if ip not in config_map:
-                    config_map[ip] = {
-                        "edit_url": edit_url, 
-                        "publish_url_base": pub_url.split('?')[0],
-                        "tabs_to_process": [] 
-                    }
-                config_map[ip]["tabs_to_process"].append(tab_name)
-
-        final_data_structure = {}
-        for ip, config in config_map.items():
-            final_data_structure[ip] = []
-            
-            gid_map = get_tab_gids_from_sheet(config["edit_url"]) 
-            
-            if not gid_map: 
-                st.warning(f"'{ip}'의 GID를 C열 시트에서 가져오지 못했습니다. (권한 확인 필요)")
-                continue 
-
-            for tab_name in config["tabs_to_process"]:
-                gid = gid_map.get(tab_name.strip())
-                
-                if gid is not None:
-                    final_url = f"{config['publish_url_base']}?gid={gid}&single=true"
-                    
-                    if "사전 반응" in tab_name:
-                         final_data_structure[ip].insert(0, {"title": tab_name, "url": final_url})
-                    else:
-                         final_data_structure[ip].append({"title": tab_name, "url": final_url})
-                else:
-                    st.warning(f"'{ip}'의 시트(C열)에서 '{tab_name}'(B열) 탭을 찾을 수 없습니다.")
-
-        return final_data_structure
-
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"'{worksheet_name}' 탭을 찾을 수 없습니다.")
-        return {}
-    except Exception as e:
-        st.error(f"'{worksheet_name}' 탭(A:D열) 로드 오류: {e}")
-        return {}
-
-# ===== 3.2. UI / 포맷팅 헬퍼 함수 =====
+# ===== 3.3. UI / 포맷팅 헬퍼 함수 =====
 
 def fmt(v, digits=3, intlike=False):
     """
@@ -540,7 +519,7 @@ def render_published_url(published_url: str):
         """, unsafe_allow_html=True)
 
 
-# ===== 3.3. 페이지 라우팅 / 데이터 헬퍼 함수 =====
+# ===== 3.4. 페이지 라우팅 / 데이터 헬퍼 함수 =====
 
 def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -589,7 +568,7 @@ def build_portal_cards(portal_data: List[Dict[str, str]]) -> str:
         """)
     return "".join(cards)
 
-def render_portal_page():
+def render_portal_page(portal_list: List[Dict[str, str]]):
     """[신규] 메인 포털 페이지를 렌더링합니다."""
     
     # --- 1. 포털 상단 헤더 (front.py) ---
@@ -619,12 +598,12 @@ def render_portal_page():
     st.write("")
     
     # --- 2. 데이터 로드 및 카드 생성 ---
-    portal_data = load_portal_data() # [ 3.1a. 신규 함수 ]
-    if not portal_data:
-        st.error("포털 데이터를 불러올 수 없습니다. GSheet '포털' 탭을 확인하세요.")
+    # (데이터는 main()에서 받음)
+    if not portal_list:
+        st.error("포털 데이터를 불러올 수 없습니다. GSheet '방영중' 탭을 확인하세요.")
         st.stop()
         
-    cards_html = build_portal_cards(portal_data)
+    cards_html = build_portal_cards(portal_list)
 
     # --- 3. HTML 렌더링 (front.py) ---
     # [수정] 카드 크기를 포스터(2:3 비율)로 변경
@@ -1002,7 +981,7 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 #region [ 7. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
 # (기존 ip.py Region 7, [신규] '포털로 돌아가기' 버튼, [수정] 5. GSheet 탭 경고 추가)
-def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]]):
+def render_ip_detail(ip_selected: str, embed_map: Dict[str, List[Dict[str, str]]]):
     """
     [기존] ip.py의 상세 페이지 렌더링 함수
     """
@@ -1017,11 +996,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     # ===== [기존] 2. 탭 UI 구성 (페이지 상단) =====
     
     # 2a. 임베딩할 탭 목록 가져오기
-    embeddable_tabs = on_air_data.get(ip_selected, []) 
+    embeddable_tabs = embed_map.get(ip_selected, []) 
 
     # [수정] 5. GSheet 탭 정보가 없는 경우 사용자에게 경고
     if not embeddable_tabs:
-        st.warning(f"'{ip_selected}'에 대한 GSheet 임베딩 탭 정보가 '방영중' 시트에 없습니다. ('포털' 탭의 A열과 '방영중' 탭의 A열이 정확히 일치하는지 확인하세요.)", icon="⚠️")
+        st.warning(f"'{ip_selected}'에 대한 GSheet 임베딩 탭 정보가 '방영중' 시트(B,C,D열)에 없습니다. (GSheet를 확인하세요.)", icon="⚠️")
 
     # 2b. [수정] 탭 이름 목록 생성 (더미 탭 포함)
     tab_titles = ["📈 성과 자세히보기"]
@@ -1726,28 +1705,26 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 # =====================================================
 
 def main():
-    # [수정] 3. 인증이 제거되었으므로 st.session_state 체크 불필요
+    # --- 1. 마스터 설정 로드 (포털 리스트, 임베딩 맵) ---
+    # [수정] 3. load_master_config 하나로 통합
+    portal_list, embed_map = load_master_config()
 
-    # --- 1. URL에서 현재 선택된 IP 확인 ---
-    # st.query_params는 딕셔너리처럼 동작하며, URL의 ?ip=... 값을 가져옴
+    # --- 2. URL에서 현재 선택된 IP 확인 ---
     selected_ip = st.query_params.get("ip", [None])[0]
 
     if selected_ip:
-        # --- 2. IP가 선택된 경우 (e.g., ?ip=눈물의여왕) ---
-        
-        # [신규] '방영중' 탭(A,B,C,D열)의 GSheet 임베딩 정보 로드
-        # (상세 페이지에서만 로드하도록 이동)
-        on_air_data = load_processed_on_air_data()
+        # --- 3. IP가 선택된 경우 (e.g., ?ip=태풍상사) ---
         
         # 'IP 성과 자세히보기' 페이지 렌더링
-        render_ip_detail(selected_ip, on_air_data)
+        # [수정] 6. 올바른 풀페이지 렌더링
+        render_ip_detail(selected_ip, embed_map)
         
     else:
-        # --- 3. IP가 선택되지 않은 경우 (기본 URL) ---
+        # --- 4. IP가 선택되지 않은 경우 (기본 URL) ---
         
         # '포털 페이지' 렌더링
-        # (포털 데이터는 render_portal_page 내부에서 로드)
-        render_portal_page()
+        # [수정] 6. 올바른 풀페이지 렌더링
+        render_portal_page(portal_list)
 
 if __name__ == "__main__":
     main()
