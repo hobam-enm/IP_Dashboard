@@ -951,46 +951,62 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 
 #region [ 7. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
+# [수정] 원본 Region 8
 def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]]):
     """
-    - 상단 필터에 '주차 선택' 포함(기본값: 가장 높은 주차)
-    - KPI는 '앞 회차(1행) / 뒷 회차(2행)'로 구성
-    - 각 행의 첫 카드가 '회차 라벨(XX화)'을 크게 표시하며, 그 카드가 나머지 KPI 카드를 래핑(감싸는) 형태
-    - 평균 비교는 '동일 회차'의 그룹 평균과 비교
-    - 동일 회차 기준의 순위(rank) 표기 복구
+    [수정] ip_selected와 '방영중' 탭에서 처리된 최종 데이터를 인자로 받음
+    [수정] 탭 UI를 페이지 최상단으로 이동
     """
 
-    # ===== 페이지 타이틀 =====
+    # ===== [수정] 1. 고정 페이지 타이틀 (항상 표시) =====
     st.markdown(f"<div class='page-title'>📈 {ip_selected} 시청자 반응 브리핑</div>", unsafe_allow_html=True)
 
-    # ===== 탭 구성 =====
-    embeddable_tabs = on_air_data.get(ip_selected, [])
+    # ===== [수정] 2. 탭 UI 구성 (페이지 상단) =====
+    
+    # 2a. 임베딩할 탭 목록 가져오기
+    embeddable_tabs = on_air_data.get(ip_selected, []) 
+
+    # 2b. [수정] 탭 이름 목록 생성 (더미 탭 포함)
     tab_titles = ["📈 성과 자세히보기"]
     if embeddable_tabs:
-        tab_titles.append("👥 시청자 반응 브리핑")
-        tab_titles.extend([t["title"] for t in embeddable_tabs])
-    tabs = st.tabs(tab_titles)
-    main_tab = tabs[0]
-    dummy_tab = tabs[1] if len(tabs) >= 2 else None
-    sheet_tabs_widgets = tabs[2:] if len(tabs) >= 3 else []
+        # [신규] 2. '시청자 반응 브리핑' 더미 탭 추가
+        tab_titles.append("👥 시청자 반응 브리핑") 
+        # G-Sheet 탭 이름 추가
+        tab_titles.extend([tab["title"] for tab in embeddable_tabs])
 
+    # 2c. [수정] st.tabs()를 사용하여 탭 생성 (오류 수정)
+    created_tabs = st.tabs(tab_titles)
+    
+    # 2d. 탭 위젯 할당
+    main_tab = created_tabs[0]
+    dummy_tab = None
+    sheet_tabs_widgets = [] # G-Sheet 탭 위젯
+    
+    if embeddable_tabs:
+        dummy_tab = created_tabs[1]           # 더미 탭
+        sheet_tabs_widgets = created_tabs[2:] # 실제 G-Sheet 탭
+
+    # ===== 탭 1: 기존 성과 자세히보기 =====
     with main_tab:
-        # ===== 좌: 비교 기준 / 우: 주차 선택 =====
-        filter_cols = st.columns([1, 1])
-
+        
+        # [수정] 1. 탭 서브 타이틀 제거
+        # st.markdown(f"### 📈 성과 자세히보기") 
+        
+        # [수정] 1, 3, 4. '비교 그룹 기준' 필터 수정 (default, placeholder)
+        filter_cols = st.columns([1, 1])  # [수정] 좌: 비교 기준, 우: 주차 선택
         with filter_cols[0]:
             selected_group_criteria = st.multiselect(
-                "",
+                "", 
                 ["동일 편성", "방영 연도"],
-                default=[],
-                placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)",
+                default=[], # [수정] 3. 기본값 없음
+                placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)", # [수정] 4. 문구 추가
                 key="ip_detail_group"
             )
 
-        df_full = load_data()
+        df_full = load_data() # [3. 공통 함수]
         f = df_full[df_full["IP"] == ip_selected].copy()
 
-        # --- 회차/주차 보정 ---
+        # --- 회차/주차 파생 컬럼 보정 ---
         if "회차_numeric" in f.columns:
             f["회차_num"] = pd.to_numeric(f["회차_numeric"], errors="coerce")
         else:
@@ -1004,7 +1020,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         if has_week_col:
             f["주차_num"] = f["주차"].apply(_week_to_num)
 
-        def _calc_week_from_episode(ep_num):
+        # --- ep→주차(1-2화=1주, 3-4화=2주...) 계산 보조 (데이터에 주차가 없어도 동작) ---
+        def _calc_week_from_episode(ep_num: float | int | None) -> int | None:
             try:
                 if pd.isna(ep_num): return None
                 n = int(ep_num)
@@ -1016,7 +1033,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             f["주차_num"] = f["회차_num"].apply(_calc_week_from_episode)
             f["주차"] = f["주차_num"].apply(lambda x: f"{int(x)}주차" if pd.notna(x) else None)
 
-        # --- 비교 그룹 기준용 ---
+        # --- 비교 그룹 기준용 보조 정보 ---
         if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
             date_col_for_filter = "방영시작일"
         else:
@@ -1036,7 +1053,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         except Exception:
             sel_year = None
 
-        # --- 주차 선택 (기본: 가장 높은 주차) ---
+        # --- [신규] 주차 선택 필터 (상단 KPI에 영향) ---
+        # 사용 가능한 주차 목록 (정렬)
         valid_weeks = (
             f.dropna(subset=["주차_num"])
              .sort_values("주차_num")["주차_num"]
@@ -1044,6 +1062,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
              .astype(int)
              .tolist()
         )
+        # 디폴트: 가능한 주차 중 가장 높은 주차
         default_week_index = max(0, len(valid_weeks) - 1)
         with filter_cols[1]:
             selected_week = st.selectbox(
@@ -1055,63 +1074,87 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 key="week_selector"
             )
 
-        # --- 선택 주차의 앞/뒤 회차 ---
+        # --- 선택 주차의 앞/뒤 회차 산출 (앞회차=홀수, 뒷회차=짝수) ---
         def _week_to_front_back_eps(week: int) -> tuple[Optional[int], Optional[int]]:
             if week is None: return (None, None)
-            front, back = 2*week - 1, 2*week
+            front = 2 * week - 1
+            back = 2 * week
+            # 실제 존재 여부 확인
             eps = f.dropna(subset=["회차_num"])["회차_num"].astype(int).unique().tolist()
-            return (front if front in eps else None, back if back in eps else None)
+            front_ok = front if front in eps else None
+            back_ok  = back  if back  in eps else None
+            return (front_ok, back_ok)
 
         ep_front, ep_back = _week_to_front_back_eps(selected_week)
 
-        # --- 비교 그룹 집합 구성 ---
+        # --- 베이스(비교 그룹 기준) ---
         base = df_full.copy()
         group_name_parts = []
-        if "동일 편성" in selected_group_criteria and sel_prog:
-            base = base[base["편성"] == sel_prog]; group_name_parts.append(f"'{sel_prog}'")
-        if "방영 연도" in selected_group_criteria and sel_year:
-            base = base[base[date_col_for_filter].dt.year == sel_year]; group_name_parts.append(f"{int(sel_year)}년")
-        if not selected_group_criteria or not group_name_parts:
-            base = df_full.copy(); group_name_parts = ["전체"]
+
+        if "동일 편성" in selected_group_criteria:
+            if sel_prog:
+                base = base[base["편성"] == sel_prog]
+                group_name_parts.append(f"'{sel_prog}'")
+            else:
+                st.warning(f"'{ip_selected}'의 편성 정보가 없어 '동일 편성' 기준은 제외됩니다.", icon="⚠️")
+
+        if "방영 연도" in selected_group_criteria:
+            if sel_year:
+                base = base[base[date_col_for_filter].dt.year == sel_year]
+                group_name_parts.append(f"{int(sel_year)}년")
+            else:
+                st.warning(f"'{ip_selected}'의 연도 정보가 없어 '방영 연도' 기준은 제외됩니다.", icon="⚠️")
+
+        if not selected_group_criteria:
+            group_name_parts.append("전체")
+            base = df_full.copy()
+        elif not group_name_parts and selected_group_criteria:
+            st.warning("그룹핑 기준 정보 부족. 전체 데이터와 비교합니다.", icon="⚠️")
+            group_name_parts.append("전체")
+            base = df_full.copy()
+        elif not group_name_parts:
+            group_name_parts.append("전체")
+            base = df_full.copy()
+
         prog_label = " & ".join(group_name_parts) + " 평균"
 
-        # --- 회차 숫자화(베이스) ---
         if "회차_numeric" in base.columns:
             base["회차_num"] = pd.to_numeric(base["회차_numeric"], errors="coerce")
         else:
             base["회차_num"] = pd.to_numeric(base["회차"].str.extract(r"(\d+)", expand=False), errors="coerce")
 
-        # ---------- 유틸 ----------
+        st.markdown("---")
+
+        # --- Metric Normalizer (페이지 2 전용) ---
         def _normalize_metric(s: str) -> str:
-            if s is None: return ""
-            return re.sub(r"[^A-Za-z0-9가-힣]+", "", str(s)).lower()
+            if s is None:
+                return ""
+            s2 = re.sub(r"[^A-Za-z0-9가-힣]+", "", str(s)).lower()
+            return s2
 
         def _metric_filter(df: pd.DataFrame, name: str) -> pd.DataFrame:
-            t = _normalize_metric(name)
-            df2 = df.copy()
-            if "metric_norm" not in df2.columns:
-                df2["metric_norm"] = df2["metric"].apply(_normalize_metric)
-            return df2[df2["metric_norm"] == t]
+            target = _normalize_metric(name)
+            if "metric_norm" not in df.columns:
+                df = df.copy()
+                df["metric_norm"] = df["metric"].apply(_normalize_metric)
+            return df[df["metric_norm"] == target]
 
-        def _fmt_ep(n) -> str:
-            try:
-                return f"{int(n):02d}화"
-            except Exception:
-                return "–"
-
-        # --- Ep별 값(해당 IP) ---
+        # ========= [신규] 회차별 KPI 계산 유틸 (주차 필터 반영) =========
         def _value_rating_ep(df_src: pd.DataFrame, metric_name: str, ep_num: int | None) -> Optional[float]:
             if ep_num is None: return None
-            sub = _metric_filter(df_src, metric_name)
+            sub = _metric_filter(df_src, metric_name).copy()
             sub = sub[pd.to_numeric(sub["회차_num"], errors="coerce") == ep_num]
             if sub.empty: return None
             vals = pd.to_numeric(sub["value"], errors="coerce").dropna()
             return float(vals.mean()) if not vals.empty else None
 
         def _value_tving_ep_sum(df_src: pd.DataFrame, ep_num: int | None, include_quick_in_vod: bool = False) -> tuple[Optional[float], Optional[float]]:
+            """
+            반환: (LIVE, VOD) — 단, include_quick_in_vod=True이면 QUICK을 VOD에 합산.
+            """
             if ep_num is None: return (None, None)
-            sub = _metric_filter(df_src, "시청인구")
-            sub = sub[pd.to_numeric(sub["회차_num"], errors="coerce") == ep_num].copy()
+            sub = _metric_filter(df_src, "시청인구").copy()
+            sub = sub[pd.to_numeric(sub["회차_num"], errors="coerce") == ep_num]
             if sub.empty: return (None, None)
             sub["val"] = pd.to_numeric(sub["value"], errors="coerce")
             sub = sub.dropna(subset=["val"])
@@ -1121,79 +1164,33 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             quick = sub[sub["매체"] == "TVING QUICK"]["val"].sum() if "TVING QUICK" in sub["매체"].unique() else 0.0
             vod = vod_only + (quick if include_quick_in_vod else 0.0)
 
+            # None 처리 일관화
             live = float(live) if live > 0 else (None if sub.empty else 0.0)
             vod  = float(vod)  if vod  > 0 else (None if sub.empty else 0.0)
             return (live, vod)
 
-        # --- 동일 회차 기준: 그룹 평균 / 그룹 내 순위 ---
-        def _base_ep_values_series(df_base: pd.DataFrame, metric_name: str, ep_num: int, media: Optional[List[str]] = None, include_quick_in_vod: bool = False) -> pd.Series:
-            """
-            반환: IP별(행) 동일 회차 값 시리즈.
-            - rating류: metric 그대로, per-IP 해당 회차 평균
-            - tving류: metric='시청인구'에서 media 필터로 per-IP 해당 회차 합계
-              include_quick_in_vod=True면 QUICK을 VOD에 합산
-            """
-            sub = df_base.copy()
-            sub = sub[pd.to_numeric(sub["회차_num"], errors="coerce") == ep_num]
-            if sub.empty: return pd.Series(dtype=float)
+        # --- 베이스(그룹 평균) 값(회차 무관, 기존 로직 유지) ---
+        base_T = mean_of_ip_episode_mean(base, "T시청률")
+        base_H = mean_of_ip_episode_mean(base, "H시청률")
+        base_live = mean_of_ip_episode_sum(base, "시청인구", ["TVING LIVE"])
+        # [수정] QUICK을 VOD에 합산한 베이스 계산: ep_sum_mean을 따로 합산
+        base_vod_only = mean_of_ip_episode_sum(base, "시청인구", ["TVING VOD"])
+        base_quick    = mean_of_ip_episode_sum(base, "시청인구", ["TVING QUICK"])
+        base_vod = (base_vod_only or 0) + (base_quick or 0)
+        base_vod = None if (base_vod_only is None and base_quick is None) else float(base_vod)
 
-            if metric_name in ["T시청률", "H시청률"]:
-                sub = _metric_filter(sub, metric_name)
-                if sub.empty: return pd.Series(dtype=float)
-                sub["val"] = pd.to_numeric(sub["value"], errors="coerce")
-                s = sub.groupby("IP")["val"].mean().dropna()
-                return s
+        # --- 랭킹 계산 유틸 (페이지 2 전용) : 에피소드 단위 값은 랭킹을 표기하지 않음(–위) ---
+        def _rank_dummy():
+            return (None, 0)
 
-            # TVING
-            sub = _metric_filter(sub, "시청인구")
-            if sub.empty: return pd.Series(dtype=float)
-            sub["val"] = pd.to_numeric(sub["value"], errors="coerce")
-
-            if media is None:
-                media = ["TVING LIVE", "TVING VOD"]
-            sub = sub[sub["매체"].isin(set(media + (["TVING QUICK"] if include_quick_in_vod else [])))]
-
-            if include_quick_in_vod:
-                # VOD + QUICK 합산 로직
-                def _sum_vod_quick(g):
-                    vod = g[g["매체"] == "TVING VOD"]["val"].sum()
-                    qk  = g[g["매체"] == "TVING QUICK"]["val"].sum()
-                    return vod + qk
-                live_series = sub[sub["매체"] == "TVING LIVE"].groupby("IP")["val"].sum()
-                vod_series  = sub.groupby(["IP"]).apply(_sum_vod_quick)
-                # 호출 측에서 LIVE/VOD를 따로 원하므로 이 함수는 미디어 집합별로 따로 부르면 됨.
-                return vod_series if ("TVING VOD" in media and "TVING LIVE" not in media) else live_series
-            else:
-                s = sub.groupby(["IP"])["val"].sum().dropna()
-                return s
-
-        def _base_ep_mean(df_base: pd.DataFrame, metric_name: str, ep_num: int, media: Optional[List[str]] = None, include_quick_in_vod: bool = False) -> Optional[float]:
-            s = _base_ep_values_series(df_base, metric_name, ep_num, media, include_quick_in_vod)
-            if s.empty: return None
-            return float(s.mean())
-
-        def _rank_in_base_ep(df_base: pd.DataFrame, metric_name: str, ep_num: int, my_value: Optional[float],
-                             media: Optional[List[str]] = None, include_quick_in_vod: bool = False) -> tuple[Optional[int], int]:
-            """
-            동일 회차 내 base 집합의 값 분포에서 my_value의 등수(내림차순), 표본수 반환
-            """
-            if my_value is None or pd.isna(my_value):
-                s = _base_ep_values_series(df_base, metric_name, ep_num, media, include_quick_in_vod)
-                return (None, int(s.size))
-            s = _base_ep_values_series(df_base, metric_name, ep_num, media, include_quick_in_vod).sort_values(ascending=False)
-            if s.empty: return (None, 0)
-            # 동점처리: 첫 등장 index 등수
-            rank = int((s >= my_value).sum())
-            return (rank, int(s.size))
-
-        # --- 서브라인/카드 렌더링 ---
+        # --- KPI 렌더 유틸 (페이지 2 전용) ---
         def _pct_color(val, base_val):
             if val is None or pd.isna(val) or base_val in (None, 0) or pd.isna(base_val):
                 return "#888"
             pct = (val / base_val) * 100
             return "#d93636" if pct > 100 else ("#2a61cc" if pct < 100 else "#444")
 
-        def sublines_html_ep(base_val, val, rank_tuple: tuple[Optional[int], int]):
+        def sublines_html_ep(base_val, val):
             pct_txt = "–"; col = "#888"
             try:
                 if (val is not None) and (base_val not in (None, 0)) and (not (pd.isna(val) or pd.isna(base_val))):
@@ -1201,112 +1198,77 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     pct_txt = f"{pct:.0f}%"; col = _pct_color(val, base_val)
             except Exception:
                 pct_txt = "–"; col = "#888"
-
-            r_txt = "–위"
-            if rank_tuple and rank_tuple[1] > 0 and rank_tuple[0] is not None:
-                r_txt = f"{rank_tuple[0]}위 / {rank_tuple[1]}"
-
+            # 랭킹은 에피소드 기준 미표기
             return (
                 "<div class='kpi-subwrap'>"
                 f"<span class='kpi-sublabel'>그룹 평균比</span> "
                 f"<span class='kpi-subpct' style='color:{col};'>{pct_txt}</span>"
-                f"<span class='kpi-sep'> · </span>"
-                f"<span class='kpi-sublabel'>동일회차 순위</span> "
-                f"<span class='kpi-subpct'>{r_txt}</span>"
                 "</div>"
             )
 
-        def _kpi_box_html(title: str, value, base_val, ep_label: str, rank_tuple, intlike=False, digits=3, suffix=""):
-            main_val = fmt(value, digits=digits, intlike=intlike)  # 공통 유틸
-            main = f"{main_val}{suffix}"
-            return (
-                "<div class='kpi-card sm'>"
-                f"<div class='kpi-title'>{title} <span class='ep-tag'>{ep_label}</span></div>"
-                f"<div class='kpi-value'>{main}</div>"
-                f"{sublines_html_ep(base_val, value, rank_tuple)}"
-                "</div>"
-            )
+        def kpi_card(col, title, value, base_val, ep_label, intlike=False, digits=3, suffix:str=""):
+            with col:
+                main_val = fmt(value, digits=digits, intlike=intlike)  # [3. 공통 함수]
+                main = f"{main_val}{suffix}"
+                st.markdown(
+                    f"<div class='kpi-card'>"
+                    f"<div class='kpi-title'>{title} <span style='opacity:.65;font-weight:500;'>· {ep_label}</span></div>"
+                    f"<div class='kpi-value'>{main}</div>"
+                    f"{sublines_html_ep(base_val, value)}"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
-        # --- KPI 에피소드 래핑 카드(요청 사항 1) ---
-        _EP_CARD_STYLE = """
-        <style>
-        .kpi-episode-card{
-            border: 1px solid rgba(0,0,0,.08);
-            border-radius: 16px;
-            padding: 14px 16px 10px;
-            margin: 4px 0 10px;
-            background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
-            box-shadow: 0 12px 28px rgba(0,0,0,.06);
-        }
-        .kpi-episode-head{
-            font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px;
-        }
-        .kpi-metrics{
-            display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px;
-        }
-        .kpi-card.sm{border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff;}
-        .kpi-title{font-size:13px; color:#666; display:flex; align-items:center; gap:6px;}
-        .kpi-title .ep-tag{opacity:.6; font-weight:600;}
-        .kpi-value{font-size:22px; font-weight:800; margin:3px 0 2px;}
-        .kpi-subwrap{font-size:12px; color:#555}
-        .kpi-subwrap .kpi-sublabel{opacity:.75}
-        .kpi-subwrap .kpi-sep{opacity:.35; padding:0 6px}
-        </style>
-        """
-        st.markdown(_EP_CARD_STYLE, unsafe_allow_html=True)
+        def kpi_week_badge(col, week_num: int):
+            with col:
+                st.markdown(
+                    f"<div class='kpi-card' style='align-items:center;justify-content:center;'>"
+                    f"<div class='kpi-title' style='font-size:14px;color:#666;'>선택 주차</div>"
+                    f"<div class='kpi-value' style='font-size:36px;'>{week_num}주차</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
 
-        def _render_episode_kpi_row(ep_num: Optional[int]):
-            """
-            1) 좌측 큰 '에피소드 라벨'을 별도 카드로 두지 않고,
-               래핑 카드 상단 타이틀에 크게 표기 (선택주차 캡션 없음)
-            2) 내부 4칸 그리드에 KPI 카드들 배치
-            3) 평균비교/순위는 '동일 회차' 기준으로 계산
-            """
-            if ep_num is None:
-                st.info("선택 주차의 해당 회차 데이터가 없습니다.")
-                return
+        # === [상단 KPI] — 2행 구성: 앞회차(1행) / 뒷회차(2행) ===
+        # 1행: 앞회차
+        r1c0, r1c1, r1c2, r1c3, r1c4 = st.columns([1.2, 1, 1, 1, 1])
+        kpi_week_badge(r1c0, selected_week)
+        if ep_front is not None:
+            ep_label_front = f"{int(ep_front):02d}화"
+            vT_front  = _value_rating_ep(f, "T시청률", ep_front)
+            vH_front  = _value_rating_ep(f, "H시청률", ep_front)
+            vLIVE_front, vVOD_front = _value_tving_ep_sum(f, ep_front, include_quick_in_vod=True)
 
-            ep_label = _fmt_ep(ep_num)
+            kpi_card(r1c1, "🎯 타깃시청률", vT_front, base_T, ep_label_front, intlike=False, digits=3)
+            kpi_card(r1c2, "🏠 가구시청률", vH_front, base_H, ep_label_front, intlike=False, digits=3)
+            kpi_card(r1c3, "📺 TVING LIVE", vLIVE_front, base_live, ep_label_front, intlike=True)
+            kpi_card(r1c4, "▶️ TVING VOD",  vVOD_front,  base_vod,  ep_label_front, intlike=True)
+        else:
+            st.info("선택 주차의 앞 회차 데이터가 없습니다.")
 
-            # 내 값
-            vT  = _value_rating_ep(f, "T시청률", ep_num)
-            vH  = _value_rating_ep(f, "H시청률", ep_num)
-            vLIVE, vVOD = _value_tving_ep_sum(f, ep_num, include_quick_in_vod=True)
+        # 2행: 뒷회차
+        r2c0, r2c1, r2c2, r2c3, r2c4 = st.columns([1.2, 1, 1, 1, 1])
+        kpi_week_badge(r2c0, selected_week)
+        if ep_back is not None:
+            ep_label_back = f"{int(ep_back):02d}화"
+            vT_back  = _value_rating_ep(f, "T시청률", ep_back)
+            vH_back  = _value_rating_ep(f, "H시청률", ep_back)
+            vLIVE_back, vVOD_back = _value_tving_ep_sum(f, ep_back, include_quick_in_vod=True)
 
-            # 동일 회차 그룹 평균
-            bT   = _base_ep_mean(base, "T시청률", ep_num)
-            bH   = _base_ep_mean(base, "H시청률", ep_num)
-            bLIVE = _base_ep_mean(base, "시청인구", ep_num, media=["TVING LIVE"])
-            bVOD  = _base_ep_mean(base, "시청인구", ep_num, media=["TVING VOD"], include_quick_in_vod=True)
-
-            # 동일 회차 순위
-            rT   = _rank_in_base_ep(base, "T시청률", ep_num, vT)
-            rH   = _rank_in_base_ep(base, "H시청률", ep_num, vH)
-            rLIVE= _rank_in_base_ep(base, "시청인구", ep_num, vLIVE, media=["TVING LIVE"])
-            rVOD = _rank_in_base_ep(base, "시청인구", ep_num, vVOD,  media=["TVING VOD"], include_quick_in_vod=True)
-
-            # HTML 렌더
-            html = []
-            html.append("<div class='kpi-episode-card'>")
-            html.append(f"<div class='kpi-episode-head'>{ep_label}</div>")
-            html.append("<div class='kpi-metrics'>")
-            html.append(_kpi_box_html("🎯 타깃시청률", vT,   bT,   ep_label, rT,   intlike=False, digits=3))
-            html.append(_kpi_box_html("🏠 가구시청률", vH,   bH,   ep_label, rH,   intlike=False, digits=3))
-            html.append(_kpi_box_html("📺 TVING LIVE", vLIVE, bLIVE, ep_label, rLIVE, intlike=True))
-            html.append(_kpi_box_html("▶️ TVING VOD",  vVOD,  bVOD,  ep_label, rVOD,  intlike=True))
-            html.append("</div></div>")
-            st.markdown("".join(html), unsafe_allow_html=True)
-
-        # === KPI 섹션: 앞 회차 / 뒷 회차 ===
-        _render_episode_kpi_row(ep_front)
-        _render_episode_kpi_row(ep_back)
+            kpi_card(r2c1, "🎯 타깃시청률", vT_back, base_T, ep_label_back, intlike=False, digits=3)
+            kpi_card(r2c2, "🏠 가구시청률", vH_back, base_H, ep_label_back, intlike=False, digits=3)
+            kpi_card(r2c3, "📺 TVING LIVE", vLIVE_back, base_live, ep_label_back, intlike=True)
+            kpi_card(r2c4, "▶️ TVING VOD",  vVOD_back,  base_vod,  ep_label_back, intlike=True)
+        else:
+            st.info("선택 주차의 뒷 회차 데이터가 없습니다.")
 
         st.divider()
 
-        # ===== 이하 그래프/표 (변경 없음: 필요 최소만 유지) =====
+        # --- 공통 그래프 크기/설정 ---
         chart_h = 260
         common_cfg = {"scrollZoom": False, "staticPlot": False, "displayModeBar": False}
 
+        # === [Row1] 시청률 추이 | 티빙추이 ===
         cA, cB = st.columns(2)
         with cA:
             st.markdown("<div class='sec-title'>📈 시청률 추이 (회차별)</div>", unsafe_allow_html=True)
@@ -1361,15 +1323,17 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             else:
                 st.info("표시할 TVING 시청자 데이터가 없습니다.")
 
+        # === [Row2] 디지털조회수 | 디지털언급량 ===
         cC, cD = st.columns(2)
         with cC:
             st.markdown("<div class='sec-title'>▶ 디지털 조회수</div>", unsafe_allow_html=True)
-            dview = _get_view_data(f)
+            dview = _get_view_data(f) # [3. 공통 함수] (피드백 3번)
             if not dview.empty:
                 if has_week_col and dview["주차"].notna().any():
                     order = (dview[["주차", "주차_num"]].dropna().drop_duplicates().sort_values("주차_num")["주차"].tolist())
                     pvt = dview.pivot_table(index="주차", columns="매체", values="value", aggfunc="sum").fillna(0)
-                    pvt = pvt.reindex(order); x_vals = pvt.index.tolist(); use_category = True
+                    pvt = pvt.reindex(order)
+                    x_vals = pvt.index.tolist(); use_category = True
                 else:
                     pvt = (dview.pivot_table(index="주차시작일", columns="매체", values="value", aggfunc="sum")
                            .sort_index().fillna(0))
@@ -1378,8 +1342,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 fig_view = go.Figure()
                 for col in pvt.columns:
                     fig_view.add_trace(go.Bar(name=col, x=x_vals, y=pvt[col], text=None))
-                fig_view.update_layout(barmode="stack", legend_title=None, bargap=0.15, bargroupgap=0.05,
-                                       height=chart_h, margin=dict(l=8, r=8, t=10, b=8))
+                fig_view.update_layout(
+                    barmode="stack", legend_title=None,
+                    bargap=0.15, bargroupgap=0.05,
+                    height=chart_h, margin=dict(l=8, r=8, t=10, b=8)
+                )
                 if use_category:
                     fig_view.update_xaxes(categoryorder="array", categoryarray=x_vals, title=None, fixedrange=True)
                 else:
@@ -1396,7 +1363,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 if has_week_col and dbuzz["주차"].notna().any():
                     order = (dbuzz[["주차", "주차_num"]].dropna().drop_duplicates().sort_values("주차_num")["주차"].tolist())
                     pvt = dbuzz.pivot_table(index="주차", columns="매체", values="value", aggfunc="sum").fillna(0)
-                    pvt = pvt.reindex(order); x_vals = pvt.index.tolist(); use_category = True
+                    pvt = pvt.reindex(order)
+                    x_vals = pvt.index.tolist(); use_category = True
                 else:
                     pvt = (dbuzz.pivot_table(index="주차시작일", columns="매체", values="value", aggfunc="sum")
                            .sort_index().fillna(0))
@@ -1405,8 +1373,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 fig_buzz = go.Figure()
                 for col in pvt.columns:
                     fig_buzz.add_trace(go.Bar(name=col, x=x_vals, y=pvt[col], text=None))
-                fig_buzz.update_layout(barmode="stack", legend_title=None, bargap=0.15, bargroupgap=0.05,
-                                       height=chart_h, margin=dict(l=8, r=8, t=10, b=8))
+                fig_buzz.update_layout(
+                    barmode="stack", legend_title=None,
+                    bargap=0.15, bargroupgap=0.05,
+                    height=chart_h, margin=dict(l=8, r=8, t=10, b=8)
+                )
                 if use_category:
                     fig_buzz.update_xaxes(categoryorder="array", categoryarray=x_vals, title=None, fixedrange=True)
                 else:
@@ -1416,6 +1387,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             else:
                 st.info("표시할 언급량 데이터가 없습니다.")
 
+        # === [Row3] 화제성  ===
         cE, cF = st.columns(2)
         with cE:
             st.markdown("<div class='sec-title'>🔥 화제성 지수</div>", unsafe_allow_html=True)
@@ -1423,14 +1395,20 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             if not fdx.empty:
                 fdx["순위"] = pd.to_numeric(fdx["value"], errors="coerce").round().astype("Int64")
 
-                order = (f[["주차", "주차_num"]].dropna().drop_duplicates().sort_values("주차_num")["주차"].tolist())
+                order = (
+                    f[["주차", "주차_num"]]
+                    .dropna()
+                    .drop_duplicates()
+                    .sort_values("주차_num")["주차"]
+                    .tolist()
+                )
                 if "주차" in fdx.columns and fdx["주차"].notna().any():
                     s = fdx.groupby("주차", as_index=True)["순위"].min().reindex(order).dropna()
                     x_vals = s.index.tolist(); use_category = True
                 else:
                     s = fdx.set_index("주차시작일")["순위"].sort_index().dropna()
                     x_vals = s.index.tolist(); use_category = False
-
+                
                 if not s.empty:
                     y_min, y_max = 0.5, 10
                     labels = [f"{int(v)}위" for v in s.values]
@@ -1466,16 +1444,23 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 fs["val"] = pd.to_numeric(fs["value"], errors="coerce")
                 fs = fs.dropna(subset=["val"])
                 if not fs.empty:
-                    order = (f[["주차", "주차_num"]].dropna().drop_duplicates().sort_values("주차_num")["주차"].tolist())
+                    order = (
+                        f[["주차", "주차_num"]]
+                        .dropna()
+                        .drop_duplicates()
+                        .sort_values("주차_num")["주차"]
+                        .tolist()
+                    )
                     fs_week = fs.dropna(subset=["주차"]).groupby("주차", as_index=True)["val"].mean()
                     fs_plot = fs_week.reindex(order).dropna()
+                    
                     if not fs_plot.empty:
                         x_vals = fs_plot.index.tolist()
                         fig_fscore = go.Figure()
                         fig_fscore.add_trace(go.Scatter(
                             x=x_vals, y=fs_plot.values,
-                            mode="lines",
-                            name="화제성 점수",
+                            mode="lines", 
+                            name="화제성 점수", 
                             line_shape="spline"
                         ))
                         fig_fscore.update_xaxes(categoryorder="array", categoryarray=x_vals, title=None, fixedrange=True)
@@ -1483,19 +1468,172 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                         fig_fscore.update_layout(legend_title=None, height=chart_h, margin=dict(l=8, r=8, t=10, b=8))
                         st.plotly_chart(fig_fscore, use_container_width=True, config=common_cfg)
                     else:
-                        st.info("표시할 화제성 점수 데이터가 없습니다.")
+                        st.info("표시할 화제성 점수(F_score) 데이터가 없습니다.")
                 else:
-                    st.info("표시할 화제성 점수 데이터가 없습니다.")
+                    st.info("표시할 화제성 점수(F_score) 데이터가 없습니다.")
             else:
-                st.info("표시할 화제성 점수 데이터가 없습니다.")
+                st.info("표시할 화제성 점수(F_score) 데이터가 없습니다.")
 
+
+        # === [Row4] TV/TVING 데모분포  ===
+        cG, cH = st.columns(2)
+
+        tv_demo = f[(f["매체"] == "TV") & (f["metric"] == "시청인구") & f["데모"].notna()].copy()
+        render_gender_pyramid(cG, "🎯 TV 데모 분포", tv_demo, height=260) # [6. 공통 함수]
+
+        t_keep = ["TVING LIVE", "TVING QUICK", "TVING VOD"]
+        tving_demo = f[(f["매체"].isin(t_keep)) & (f["metric"] == "시청인구") & f["데모"].notna()].copy()
+        render_gender_pyramid(cH, "📺 TVING 데모 분포", tving_demo, height=260) # [6. 공통 함수]
+
+        st.divider()
+
+        # === [Row5] 데모분석 상세 표 (AgGrid) ===
+        st.markdown("#### 👥 데모분석 상세 표")
+
+        # --- [페이지 2]용 데모 테이블 빌더 ---
+        def _build_demo_table_numeric(df_src: pd.DataFrame, medias: List[str]) -> pd.DataFrame:
+            sub = df_src[
+                (df_src["metric"] == "시청인구") &
+                (df_src["데모"].notna()) &
+                (df_src["매체"].isin(medias))
+            ].copy()
+            if sub.empty:
+                return pd.DataFrame(columns=["회차"] + DEMO_COLS_ORDER)
+
+            sub["성별"] = sub["데모"].apply(_gender_from_demo) # [6. 공통 함수]
+            sub["연령대_대"] = sub["데모"].apply(_decade_label_clamped) # [6. 공통 함수]
+            sub = sub[sub["성별"].isin(["남", "여"]) & sub["연령대_대"].notna()].copy()
+            
+            if "회차_num" not in sub.columns: 
+                sub["회차_num"] = sub["회차"].str.extract(r"(\d+)", expand=False).astype(float)
+
+            sub = sub.dropna(subset=["회차_num"])
+            sub["회차_num"] = sub["회차_num"].astype(int)
+            sub["라벨"] = sub.apply(lambda r: f"{r['연령대_대']}{'남성' if r['성별']=='남' else '여성'}", axis=1)
+
+            pvt = sub.pivot_table(index="회차_num", columns="라벨", values="value", aggfunc="sum").fillna(0)
+
+            for c in DEMO_COLS_ORDER: # [2.1. 공통 상수]
+                if c not in pvt.columns:
+                    pvt[c] = 0
+            pvt = pvt[DEMO_COLS_ORDER].sort_index()
+            pvt.insert(0, "회차", pvt.index.map(_fmt_ep)) # [6. 공통 함수]
+            return pvt.reset_index(drop=True)
+
+        # --- [페이지 2]용 AgGrid 렌더러 ---
+        diff_renderer = JsCode("""
+        function(params){
+          const api = params.api;
+          const colId = params.column.getColId();
+          const rowIndex = params.node.rowIndex;
+          const val = Number(params.value || 0);
+          if (colId === "회차") return params.value;
+
+          let arrow = "";
+          if (rowIndex > 0) {
+            const prev = api.getDisplayedRowAtIndex(rowIndex - 1);
+            if (prev && prev.data && prev.data[colId] != null) {
+              const pv = Number(prev.data[colId] || 0);
+              if (val > pv) arrow = "🔺";
+              else if (val < pv) arrow = "▾";
+            }
+          }
+          const txt = Math.round(val).toLocaleString();
+          return arrow + txt;
+        }
+        """)
+
+        _js_demo_cols = "[" + ",".join([f'"{c}"' for c in DEMO_COLS_ORDER]) + "]"
+        cell_style_renderer = JsCode(f"""
+        function(params){{
+          const field = params.colDef.field;
+          if (field === "회차") {{
+            return {{'text-align':'left','font-weight':'600','background-color':'#fff'}};
+          }}
+          const COLS = {_js_demo_cols};
+          let rowVals = [];
+          for (let k of COLS) {{
+            const v = Number((params.data && params.data[k] != null) ? params.data[k] : NaN);
+            if (!isNaN(v)) rowVals.push(v);
+          }}
+          let bg = '#ffffff';
+          if (rowVals.length > 0) {{
+            const v = Number(params.value || 0);
+            const mn = Math.min.apply(null, rowVals);
+            const mx = Math.max.apply(null, rowVals);
+            let norm = 0.5;
+            if (mx > mn) norm = (v - mn) / (mx - mn);
+            const alpha = 0.12 + 0.45 * Math.max(0, Math.min(1, norm));
+            bg = 'rgba(30,90,255,' + alpha.toFixed(3) + ')';
+          }}
+          return {{
+            'background-color': bg,
+            'text-align': 'right',
+            'padding': '2px 4px',
+            'font-weight': '500'
+          }};
+        }}
+        """)
+
+        def _render_aggrid_table(df_numeric: pd.DataFrame, title: str, height: int = 320):
+            st.markdown(f"###### {title}")
+            if df_numeric.empty:
+                st.info("표시할 데이터가 없습니다.")
+                return
+
+            gb = GridOptionsBuilder.from_dataframe(df_numeric)
+            gb.configure_grid_options(rowHeight=34, suppressMenuHide=True, domLayout='normal')
+            gb.configure_default_column(
+                sortable=False, resizable=True, filter=False,
+                cellStyle={'textAlign': 'right'}, headerClass='centered-header bold-header'
+            )
+            gb.configure_column("회차", header_name="회차", cellStyle={'textAlign': 'left'})
+
+            for c in [col for col in df_numeric.columns if col != "회차"]:
+                gb.configure_column(
+                    c,
+                    header_name=c,
+                    cellRenderer=diff_renderer,
+                    cellStyle=cell_style_renderer
+                )
+            grid_options = gb.build()
+            AgGrid(
+                df_numeric,
+                gridOptions=grid_options,
+                theme="streamlit",
+                height=height,
+                fit_columns_on_grid_load=True,
+                update_mode=GridUpdateMode.NO_UPDATE,
+                allow_unsafe_jscode=True
+            )
+
+        tv_numeric = _build_demo_table_numeric(f, ["TV"])
+        _render_aggrid_table(tv_numeric, "📺 TV (시청자수)")
+
+        tving_numeric = _build_demo_table_numeric(f, ["TVING LIVE", "TVING QUICK", "TVING VOD"])
+        _render_aggrid_table(tving_numeric, "▶︎ TVING 합산 (LIVE/QUICK/VOD) 시청자수")
+
+    # ===== [신규] 탭 2: 더미 탭 (시각적 구분) =====
     if dummy_tab:
         with dummy_tab:
+            # [수정] 1. 탭 서브 타이틀 제거
+            # st.markdown("### 👥 시청자 반응 브리핑")
             st.info("우측에서 조회를 원하는 회차를 선택해주세요.")
 
+    # ===== [신규] 탭 3, 4...: 임베딩된 G-Sheet =====
+    # [수정] zip을 사용하여 올바른 탭 위젯과 탭 데이터를 매칭
     for tab_widget, tab_info in zip(sheet_tabs_widgets, embeddable_tabs):
         with tab_widget:
-            render_published_url(tab_info["url"])
+            
+            # [수정] 1. 탭 서브 타이틀 제거
+            # st.markdown(f"### {tab_info['title']}")
+            
+            # [수정] 4. 캡션 텍스트 및 hr 제거 (반영됨)
+            # st.caption(f"이 탭은 '방영중' 시트(D열)에 등록된 '웹에 게시' URL을 기반으로 생성되었습니다.")
+            # st.markdown("---")
+            
+            # [수정] render_published_url 함수 사용
+            render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
 
 #endregion
 
