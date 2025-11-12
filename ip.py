@@ -1,4 +1,4 @@
-# 📈 IP 성과 자세히보기 — Standalone v2.0
+# 📈 IP 성과 자세히보기 — Standalone v2.0 (patched)
 # 원본 Dashboard.py에서 'IP 성과 자세히보기' 페이지만을 추출한 단독 실행 파일입니다.
 
 #region [ 1. 라이브러리 임포트 ]
@@ -64,7 +64,11 @@ with st.sidebar:
 
 #region [ 2. 공통 스타일 통합 ]
 # =====================================================
-# (이 영역은 원본과 동일하게 유지됩니다)
+# 핵심 패치:
+# (A) 전역 wrapper hover-lift '차단'
+# (B) 차트/그리드/블록/카드 등 '컨텐츠 자체'에 hover 있을 때만 해당 wrapper를 소폭 리프트
+# (C) KPI '회차 래핑 카드(.kpi-episode-card)'만 개별 리프트, 페이지 전체는 미리 차단
+
 st.markdown("""
 <style>
 /* --- [기본] Hover foundation & Title/Box exceptions --- */
@@ -116,56 +120,42 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.mode-switch) {
     margin-bottom: 0.5rem !important;
 }
 
-/* --- [기본] Background & Hover (Legacy) --- */
+/* --- [기본] Background --- */
 [data-testid="stAppViewContainer"] {
     background: radial-gradient(1200px 500px at 10% -10%, rgba(99, 102, 241, 0.05), transparent 40%),
                 radial-gradient(1200px 500px at 90% -20%, rgba(236, 72, 153, 0.05), transparent 40%),
                 #f7f8fb;
 }
-div[data-testid="stVerticalBlockBorderWrapper"]:hover{
-    transform: translateY(-2px);
-    box-shadow: 0 14px 36px rgba(16, 24, 40, 0.14), 0 4px 12px rgba(16, 24, 40, 0.08);
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:hover{
-    transform: translate3d(0, -2px, 0) !important;
-    box-shadow: 0 14px 36px rgba(16, 24, 40, 0.14), 0 4px 12px rgba(16, 24, 40, 0.08) !important;
-    z-index: 2;
-}
+
+/* ====== (A) 전역 hover-lift 차단 ====== */
 div[data-testid="stVerticalBlockBorderWrapper"]:hover{
   transform: none !important;
-  box-shadow: inherit !important;
+  box-shadow: none !important;
   z-index: auto !important;
 }
-section[data-testid="stSidebar"] .kpi-card:hover,
-section[data-testid="stSidebar"] .block-card:hover,
-section[data-testid="stSidebar"] .stPlotlyChart:hover,
-section[data-testid="stSidebar"] .ag-theme-streamlit .ag-root-wrapper:hover{
-  transform: none !important;
-  box-shadow: inherit !important;
-}
+
+/* ====== (B) 컨텐츠 기반 조건부 hover-lift (해당 wrapper만 소폭 리프트) ====== */
 .kpi-card, .block-card, .stPlotlyChart, .ag-theme-streamlit .ag-root-wrapper{
   transition: transform .18s ease, box-shadow .18s ease;
   will-change: transform, box-shadow;
   backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
 }
-.kpi-card:hover, .block-card:hover, .stPlotlyChart:hover, .ag-theme-streamlit .ag-root-wrapper:hover{
-  transform: translateY(-2px);
-  box-shadow: 0 14px 36px rgba(16,24,40,.14), 0 4px 12px rgba(16,24,40,.08);
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.stPlotlyChart:hover){
+  transform: translate3d(0,-4px,0) !important;
+  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
+  z-index: 3 !important;
 }
-
-
-/* --- [기본] 지표기준안내 (gd-guideline) --- */
-.gd-guideline { font-size: 13px; line-height: 1.35; }
-.gd-guideline ul { margin: .2rem 0 .6rem 1.1rem; padding: 0; }
-.gd-guideline li { margin: .15rem 0; }
-.gd-guideline b, .gd-guideline strong { font-weight: 600; }
-.gd-guideline code{
-  background: rgba(16,185,129,.10);
-  color: #16a34a;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: .92em;
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ag-theme-streamlit .ag-root-wrapper:hover){
+  transform: translate3d(0,-4px,0) !important;
+  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
+  z-index: 3 !important;
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-card:hover),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.block-card:hover){
+  transform: translate3d(0,-4px,0) !important;
+  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
+  z-index: 3 !important;
 }
 
 /* --- [기본] 앱 배경 / 카드 스타일 --- */
@@ -214,21 +204,13 @@ section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
 section[data-testid="stSidebar"] .stCaption,
 section[data-testid="stSidebar"] .stMarkdown p.sidebar-contact{ text-align:center !important; }
 
-/* --- [사이드바] 네비게이션 버튼 (v2) --- */
-/* [수정] 네비게이션 관련 스타일 제거 (단독 페이지이므로 불필요) */
-/*
-section[data-testid="stSidebar"] .block-container{padding-top:0.75rem;}
-...
-.sidebar-hr { margin: 0; border-top: 1px solid #E5E7EB; }
-*/
-
 /* --- [사이드바] 내부 카드/여백 제거 (SIDEBAR CARD STRIP) --- */
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   padding: 0 !important;
-  margin-bottom: 0 !important; /* [수정] 네비게이션 버튼 간격 제거 */
+  margin-bottom: 0 !important;
 }
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
   transform: none !important;
@@ -262,18 +244,21 @@ section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
   justify-content: center;
 }
 .kpi-title { 
-    font-size: 15px; 
-    font-weight: 600; 
+    font-size: 16px;  /* ← 확대 */
+    font-weight: 700; 
     margin-bottom: 10px; 
-    color: #444; 
+    color: #333; 
+    display:flex; align-items:center; justify-content:center;
+    text-align:center; line-height:1.3;
 }
 .kpi-value { 
     font-size: 28px; 
-    font-weight: 700; 
+    font-weight: 800; 
     color: #000; 
     line-height: 1.2;
+    text-align:center;
 }
-.kpi-subwrap { margin-top: 10px; line-height: 1.4; }
+.kpi-subwrap { margin-top: 10px; line-height: 1.4; text-align:center; }
 .kpi-sublabel { font-size: 12px; font-weight: 500; color: #555; letter-spacing: 0.1px; margin-right: 6px; }
 .kpi-substrong { font-size: 14px; font-weight: 700; color: #111; }
 .kpi-subpct { font-size: 14px; font-weight: 700; }
@@ -305,51 +290,7 @@ h3 { margin-top: -15px; margin-bottom: 10px; }
 h4 { font-weight: 700; color: #111; margin-top: 0rem; margin-bottom: 0.5rem; }
 hr { margin: 1.5rem 0; background-color: #e0e0e0; }
 
-
-/* --- [수정] HOVER FIX OVERRIDE (v2) --- */
-.stPlotlyChart:hover,
-.ag-theme-streamlit .ag-root-wrapper:hover {
-  transform: none !important;
-  box-shadow: inherit !important;
-}
-
-/* [수정] ._liftable 클래스 의존성 제거 및 중복 규칙 통합 */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  transition: transform .18s ease, box-shadow .18s ease !important;
-  will-change: transform, box-shadow;
-  backface-visibility: hidden;
-  position: relative;
-  /* emulate ._liftable (원본 주석 유지) */
-}
-
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.stPlotlyChart:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .stPlotlyChart:hover)) { /* [수정] ._liftable 제거 */
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ag-theme-streamlit .ag-root-wrapper:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .ag-theme-streamlit .ag-root-wrapper:hover)) { /* [수정] ._liftable 제거 */
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-card:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .kpi-card:hover)), /* [수정] .*_liftable 제거 */
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.block-card:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .block-card:hover)) { /* [수정] .*_liftable 제거 */
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
-  transform: none !important;
-  box-shadow: inherit !important;
-  z-index: auto !important;
-  /* [추가] 사이드바에서는 트랜지션 효과 제거 */
-  transition: none !important; 
-}
-/* [수정] 아래의 중복 규칙들은 위의 통합 규칙으로 병합됨 */
-            
-/* ===== Sidebar compact spacing (tunable) ===== */
-/* [수정] 네비게이션이 없으므로, 원본의 사이드바 여백 조절 스타일은 대부분 불필요 */
-/* [수정] 단, 로그인 버튼/텍스트 등 최소한의 스타일은 남김 */
+/* ===== Sidebar compact spacing ===== */
 [data-testid="stSidebar"]{
   --sb-gap: 6px;
   --sb-pad-y: 8px;
@@ -375,47 +316,6 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]
 
 </style>
 """, unsafe_allow_html=True)
-#endregion
-
-
-#region [ 2.1. 기본 설정 및 공통 상수 ]
-# =====================================================
-
-# ===== [수정] 'IP 성과 자세히보기' 페이지에서만 사용하는 상수 =====
-DECADES = ["10대","20대","30대","40대","50대","60대"]
-DEMO_COLS_ORDER = [f"{d}남성" for d in DECADES] + [f"{d}여성" for d in DECADES]
-
-# ===== Plotly 공통 테마 설정 =====
-dashboard_theme = go.Layout(
-    paper_bgcolor='rgba(0,0,0,0)',
-    plot_bgcolor='rgba(0,0,0,0)',
-    font=dict(family='sans-serif', size=12, color='#333333'),
-    title=dict(font=dict(size=16, color="#111"), x=0.05),
-    legend=dict(
-        orientation='h',
-        yanchor='bottom',
-        y=1.02,
-        xanchor='right',
-        x=1,
-        bgcolor='rgba(0,0,0,0)'
-    ),
-    margin=dict(l=20, r=20, t=50, b=20),
-    xaxis=dict(
-        showgrid=False, 
-        zeroline=True, 
-        zerolinecolor='#e0e0e0', 
-        zerolinewidth=1
-    ),
-    yaxis=dict(
-        showgrid=True, 
-        gridcolor='#f0f0f0',
-        zeroline=True, 
-        zerolinecolor='#e0e0e0'
-    ),
-)
-pio.templates['dashboard_theme'] = go.layout.Template(layout=dashboard_theme)
-pio.templates.default = 'dashboard_theme'
-# =====================================================
 #endregion
 
 
@@ -814,8 +714,6 @@ def _gender_from_demo(s: str):
     if any(k in s for k in ["남", "M", "male", "Male"]): return "남"
     return "기타"
 
-# [수정] gender_from_demo() 는 이 페이지에서 미사용 (페이지 3 전용)
-
 def _to_decade_label(x: str):
     """'데모' 문자열에서 연령대(10대, 20대...)를 추출합니다."""
     m = re.search(r"\d+", str(x))
@@ -824,7 +722,7 @@ def _to_decade_label(x: str):
     return f"{(n//10)*10}대"
 
 def _decade_label_clamped(x: str):
-    """ 10대~60대 범위로 연령대 라벨 생성, 그 외는 None (페이지 2, 3용) """
+    """ 10대~60대 범위로 연령대 라벨 생성, 그 외는 None """
     m = re.search(r"\d+", str(x))
     if not m: return None
     n = int(m.group(0))
@@ -837,13 +735,13 @@ def _decade_key(s: str):
     return int(m.group(0)) if m else 999
 
 def _fmt_ep(n):
-    """ 회차 번호를 '01화' 형태로 포맷팅 (페이지 2, 3용) """
+    """ 회차 번호를 '01화' 형태로 포맷팅 """
     try:
         return f"{int(n):02d}화"
     except Exception:
         return str(n)
 
-# ===== 6.2. 피라미드 차트 렌더링 (페이지 1, 2) =====
+# ===== 6.2. 피라미드 차트 렌더링 =====
 COLOR_MALE = "#2a61cc"
 COLOR_FEMALE = "#d93636"
 
@@ -915,7 +813,6 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
         bargap=0.15,
         bargroupgap=0.05,
     )
-    # 피라미드 차트 전용 로컬 제목 (전역 테마 오버라이드)
     fig.update_layout(
         title=dict(
             text=title,
@@ -944,8 +841,6 @@ def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: i
 
     container.plotly_chart(fig, use_container_width=True,
                            config={"scrollZoom": False, "staticPlot": False, "displayModeBar": False})
-
-# [수정] get_avg_demo_pop_by_episode() 함수 제거 (페이지 3 전용)
 #endregion
 
 
@@ -1044,6 +939,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
              .astype(int)
              .tolist()
         )
+        # ✅ 음수/0 주차는 표시 제외 (옵션 구성 이전에 필터링)
+        valid_weeks = [w for w in valid_weeks if w > 0]
+
         default_week_index = max(0, len(valid_weeks) - 1)
         with filter_cols[1]:
             selected_week = st.selectbox(
@@ -1054,8 +952,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 placeholder="주차 선택",
                 key="week_selector"
             )
-        # ✅ 음수/0 주차는 표시 제외
-        valid_weeks = [w for w in valid_weeks if w > 0]
 
         # --- 선택 주차의 앞/뒤 회차 ---
         def _week_to_front_back_eps(week: int) -> tuple[Optional[int], Optional[int]]:
@@ -1156,14 +1052,12 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             sub = sub[sub["매체"].isin(set(media + (["TVING QUICK"] if include_quick_in_vod else [])))]
 
             if include_quick_in_vod:
-                # VOD + QUICK 합산 로직
                 def _sum_vod_quick(g):
                     vod = g[g["매체"] == "TVING VOD"]["val"].sum()
                     qk  = g[g["매체"] == "TVING QUICK"]["val"].sum()
                     return vod + qk
                 live_series = sub[sub["매체"] == "TVING LIVE"].groupby("IP")["val"].sum()
                 vod_series  = sub.groupby(["IP"]).apply(_sum_vod_quick)
-                # 호출 측에서 LIVE/VOD를 따로 원하므로 이 함수는 미디어 집합별로 따로 부르면 됨.
                 return vod_series if ("TVING VOD" in media and "TVING LIVE" not in media) else live_series
             else:
                 s = sub.groupby(["IP"])["val"].sum().dropna()
@@ -1184,11 +1078,44 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 return (None, int(s.size))
             s = _base_ep_values_series(df_base, metric_name, ep_num, media, include_quick_in_vod).sort_values(ascending=False)
             if s.empty: return (None, 0)
-            # 동점처리: 첫 등장 index 등수
             rank = int((s >= my_value).sum())
             return (rank, int(s.size))
 
-        # --- 서브라인/카드 렌더링 ---
+        # --- KPI 에피소드 래핑 카드 스타일 ---
+        _EP_CARD_STYLE = """
+        <style>
+        .kpi-episode-card{
+            border: 1px solid rgba(0,0,0,.08);
+            border-radius: 16px;
+            padding: 14px 16px 10px;
+            margin: 4px 0 10px;
+            background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
+            transition: transform .18s ease, box-shadow .18s ease;
+        }
+        .kpi-episode-card:hover{
+            transform: translateY(-2px) !important;
+            box-shadow: 0 10px 22px rgba(0,0,0,.10) !important;
+        }
+        .kpi-episode-head{
+            font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px;
+            text-align:center;
+        }
+        .kpi-metrics{ display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+        .kpi-card.sm{ border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff; }
+        .kpi-title{
+            font-size:16px; color:#333;
+            display:flex; align-items:center; justify-content:center; gap:6px;
+            text-align:center; line-height:1.3;
+        }
+        .kpi-title .ep-tag{opacity:.6; font-weight:600;}
+        .kpi-value{ font-size:22px; font-weight:800; margin:3px 0 2px; text-align:center; }
+        .kpi-subwrap{ font-size:12px; color:#555; text-align:center; }
+        .kpi-subwrap .kpi-sublabel{ opacity:.75 }
+        .kpi-subwrap .kpi-sep{ opacity:.35; padding:0 6px }
+        </style>
+        """
+        st.markdown(_EP_CARD_STYLE, unsafe_allow_html=True)
+
         def _pct_color(val, base_val):
             if val is None or pd.isna(val) or base_val in (None, 0) or pd.isna(base_val):
                 return "#888"
@@ -1219,7 +1146,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             )
 
         def _kpi_box_html(title: str, value, base_val, ep_label: str, rank_tuple, intlike=False, digits=3, suffix=""):
-            main_val = fmt(value, digits=digits, intlike=intlike)  # 공통 유틸
+            main_val = fmt(value, digits=digits, intlike=intlike)
             main = f"{main_val}{suffix}"
             return (
                 "<div class='kpi-card sm'>"
@@ -1229,75 +1156,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 "</div>"
             )
 
-        # --- KPI 에피소드 래핑 카드(요청 사항 1) ---
-        _EP_CARD_STYLE = """
-        <style>
-        /* =========================================================
-           KPI 래핑 카드(.kpi-episode-card)만 살짝 플로팅,
-           그 외에는 플로팅(hover-lift) 전역 차단
-           - Chrome 105+ :has() 지원
-        ========================================================== */
-
-        /* 1) 기본: 페이지 전체 hover-lift 무력화 */
-        div[data-testid="stVerticalBlockBorderWrapper"]:hover{
-            transform: none !important;
-            box-shadow: none !important;
-            will-change: auto !important;
-        }
-
-        /* 2) 단, .kpi-episode-card에 마우스가 올라간 동안에는
-              모든 상위 hover-lift를 다시 '무력화'하여 연쇄 플로팅 방지 */
-        body:has(.kpi-episode-card:hover) div[data-testid="stVerticalBlockBorderWrapper"]{
-            transform: none !important;
-            box-shadow: none !important;
-            will-change: auto !important;
-        }
-
-        /* 3) 우리가 원하는 '개별 카드'만 자체 플로팅 효과 */
-        .kpi-episode-card{
-            border: 1px solid rgba(0,0,0,.08);
-            border-radius: 16px;
-            padding: 14px 16px 10px;
-            margin: 4px 0 10px;
-            background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
-            transition: transform .18s ease, box-shadow .18s ease;
-        }
-        .kpi-episode-card:hover{
-            transform: translateY(-2px) !important;
-            box-shadow: 0 10px 22px rgba(0,0,0,.10) !important;
-        }
-
-        /* 헤드/메트릭/카드 내부 스타일(제목 중앙 + 폰트 확대 포함) */
-        .kpi-episode-head{
-            font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px;
-            text-align:center;
-        }
-        .kpi-metrics{ display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
-        .kpi-card.sm{ border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff; }
-
-        .kpi-title{
-            font-size:16px; color:#333;
-            display:flex; align-items:center; justify-content:center; gap:6px;
-            text-align:center; line-height:1.3;
-        }
-        .kpi-title .ep-tag{opacity:.6; font-weight:600;}
-
-        .kpi-value{ font-size:22px; font-weight:800; margin:3px 0 2px; text-align:center; }
-
-        .kpi-subwrap{ font-size:12px; color:#555; text-align:center; }
-        .kpi-subwrap .kpi-sublabel{ opacity:.75 }
-        .kpi-subwrap .kpi-sep{ opacity:.35; padding:0 6px }
-        </style>
-        """
-        st.markdown(_EP_CARD_STYLE, unsafe_allow_html=True)
-
-
         def _render_episode_kpi_row(ep_num: Optional[int]):
             """
-            1) 좌측 큰 '에피소드 라벨'을 별도 카드로 두지 않고,
-               래핑 카드 상단 타이틀에 크게 표기 (선택주차 캡션 없음)
-            2) 내부 4칸 그리드에 KPI 카드들 배치
-            3) 평균비교/순위는 '동일 회차' 기준으로 계산
+            1) 래핑 카드 상단에 회차 크게 표기(선택주차 캡션 없음)
+            2) 내부 4칸 그리드: 타깃시청률/가구시청률/TVING LIVE/TVING VOD(QUICK 합산)
+            3) 평균비교·순위는 '동일 회차' 기준
             """
             if ep_num is None:
                 st.info("선택 주차의 해당 회차 데이터가 없습니다.")
@@ -1335,14 +1198,12 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             st.markdown("".join(html), unsafe_allow_html=True)
 
         # === KPI 섹션: 앞 회차 / 뒷 회차 ===
-        st.markdown("<div class='kpi-scope'>", unsafe_allow_html=True)   # ✅ 스코프 시작
         _render_episode_kpi_row(ep_front)
         _render_episode_kpi_row(ep_back)
-        st.markdown("</div>", unsafe_allow_html=True)                     # ✅ 스코프 종료
 
         st.divider()
 
-        # ===== 이하 그래프/표 (변경 없음: 필요 최소만 유지) =====
+        # ===== 이하 그래프/표 =====
         chart_h = 260
         common_cfg = {"scrollZoom": False, "staticPlot": False, "displayModeBar": False}
 
@@ -1541,37 +1402,31 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 #region [ 8. 메인 실행 ]
 # =====================================================
-# [수정] URL 파라미터와 세션 상태를 동기화하는 로직으로 변경
+# URL 파라미터와 세션 상태 동기화
 
 # --- 1. 세션 스테이트 초기화 ---
 if "selected_ip" not in st.session_state:
     st.session_state.selected_ip = None # 사이드바에서 선택한 IP
 
-# --- 2. 사이드바 타이틀 렌더링 ---
-# (스크립트 상단 Region 1-1 에서 자동으로 실행됨)
-
 # --- 3. '방영중' 데이터 로드 (A, B, C, D열 처리) ---
-on_air_data = load_processed_on_air_data() # [ 3. 공통 함수 ]
+on_air_data = load_processed_on_air_data()
 on_air_ips = list(on_air_data.keys())
 
-# --- [신규] 4. 초기 로드 시 URL 파라미터 읽기 ---
+# --- 4. 초기 로드 시 URL 파라미터 읽기 ---
 try:
     selected_ip_from_url = st.query_params.get("ip", [None])[0]
 except AttributeError:
     selected_ip_from_url = st.experimental_get_query_params().get("ip", [None])[0]
 
-# 세션에 IP가 없는데 (최초 로드) URL에 IP가 있다면, URL을 우선함
 if st.session_state.selected_ip is None and selected_ip_from_url and selected_ip_from_url in on_air_ips:
     st.session_state.selected_ip = selected_ip_from_url
 
-# --- 5. 사이드바 네비게이션 렌더링 ---
-# (이 함수는 st.session_state.selected_ip를 읽고, 없으면 기본값(첫번째 IP)을 설정함)
-render_sidebar_navigation(on_air_ips) # [ 4. 사이드바 ... ] 함수 호출
+# --- 5. 사이드바 네비게이션 ---
+render_sidebar_navigation(on_air_ips)
 
 # --- 6. 메인 페이지 렌더링 ---
 current_selected_ip = st.session_state.get("selected_ip", None)
 
-# [신규] 현재 세션의 IP와 URL 파라미터가 다르면, 세션 기준으로 URL을 덮어씀
 if current_selected_ip and selected_ip_from_url != current_selected_ip:
      try:
         st.query_params["ip"] = current_selected_ip
@@ -1579,17 +1434,9 @@ if current_selected_ip and selected_ip_from_url != current_selected_ip:
         st.experimental_set_query_params(ip=current_selected_ip)
 
 if current_selected_ip:
-    # 선택된 IP가 있으면 해당 IP의 상세 페이지를 렌더링
-    render_ip_detail(current_selected_ip, on_air_data) # [ 7. 페이지 2 ... ] 함수 호출
+    render_ip_detail(current_selected_ip, on_air_data)
 else:
-    # 선택된 IP가 없으면 안내 메시지 표시 (e.g. '방영중' 탭이 비어있을 경우)
     st.markdown("## 📈 IP 성과 자세히보기")
     st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
     
 #endregion
-
-
-
-
-
-
