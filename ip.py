@@ -1,18 +1,14 @@
-# 📈 IP 성과 자세히보기 — Standalone v2.0 (patched)
-# 원본 Dashboard.py에서 'IP 성과 자세히보기' 페이지만을 추출한 단독 실행 파일입니다.
+# 📈 IP 성과 자세히보기 — Standalone v2.0 (no-hover-lift)
+# 모든 '들썩임(hover-lift)' 효과 CSS를 제거한 버전
 
 #region [ 1. 라이브러리 임포트 ]
 # =====================================================
 import re
 from typing import List, Dict, Any, Optional 
-import time, uuid
-import textwrap
-
+import time
 import numpy as np
 import pandas as pd
-import plotly.express as px
 from plotly import graph_objects as go
-import plotly.io as pio
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
@@ -24,42 +20,16 @@ from google.oauth2.service_account import Credentials
 #region [ 1-0. 페이지 설정 — 반드시 첫 번째 Streamlit 명령 ]
 # =====================================================
 st.set_page_config(
-    page_title="시청자 반응 브리핑", # 페이지 타이틀 수정
+    page_title="시청자 반응 브리핑",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# === [PATCH] 전역 hover-lift kill switch: 앱 전체를 no-lift 스코프로 감싼다 ===
-st.markdown("""
-<div class="no-lift">
-<style>
-/* no-lift 영역에서는 모든 wrapper의 hover/has(:hover) 변형/그림자를 차단 */
-.no-lift div[data-testid="stVerticalBlockBorderWrapper"],
-.no-lift div[data-testid="stVerticalBlockBorderWrapper"]:hover,
-.no-lift div[data-testid="stVerticalBlockBorderWrapper"]:has(:hover){
-  transform: none !important;
-  box-shadow: none !important;
-  transition: none !important;
-  z-index: auto !important;
-  position: static !important;
-}
-/* wrapper 자체의 트랜지션도 제거 (뒤에서 누가 덮어써도 이게 이김) */
-.no-lift div[data-testid="stVerticalBlockBorderWrapper"]{
-  transition: none !important;
-  will-change: auto !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 #endregion
 
 
 #region [ 1-1. 사이드바 타이틀 ]
 # =====================================================
-# [수정] 인증 관련 함수는 모두 삭제하고, 사이드바 UI와 _rerun만 남깁니다.
-
 def _rerun():
-    """세션 상태 변경 후 페이지를 새로고침합니다."""
     if hasattr(st, "rerun"):
         st.rerun()
     else:
@@ -79,29 +49,14 @@ with st.sidebar:
         "<p class='sidebar-contact' style='font-size:12px; color:gray; text-align:center;'>문의 : 미디어)디지털마케팅팀 데이터파트</p>",
         unsafe_allow_html=True
     )
-    
-    # [수정] 관리자 모드 로그인 UI 전체 삭제
-
 #endregion
 
 
-#region [ 2. 공통 스타일 통합 ]
+#region [ 2. 공통 스타일 (들썩임 효과 전부 제거) ]
 # =====================================================
-# 핵심 패치:
-# (A) 전역 wrapper hover-lift '차단'
-# (B) 차트/그리드/블록/카드 등 '컨텐츠 자체'에 hover 있을 때만 해당 wrapper를 소폭 리프트
-# (C) KPI '회차 래핑 카드(.kpi-episode-card)'만 개별 리프트, 페이지 전체는 미리 차단
-
 st.markdown("""
 <style>
-/* --- [기본] Hover foundation & Title/Box exceptions --- */
-div[data-testid="stVerticalBlockBorderWrapper"]{
-    transition: transform .18s ease, box-shadow .18s ease !important;
-    will-change: transform, box-shadow;
-    overflow: visible !important;
-    position: relative;
-    pointer-events: auto;
-}
+/* 타이틀 */
 section[data-testid="stVerticalBlock"] h1,
 section[data-testid="stVerticalBlock"] h2,
 section[data-testid="stVerticalBlock"] h3 {
@@ -124,8 +79,24 @@ section[data-testid="stVerticalBlock"] h3 { font-size: clamp(22px, 2.0vw, 30px);
     gap: 10px;
 }
 
-/* Remove box background/border/shadow for KPI, titles, filters, mode switchers */
+/* 앱 배경 */
+[data-testid="stAppViewContainer"] {
+    background: #f7f8fb;
+}
+
+/* wrapper 기본 카드 스타일 (hover 변형 없음) */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #ffffff;
+    border: 1px solid #e9e9e9;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+    padding: 1.25rem 1.25rem 1.5rem 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+/* KPI/타이틀/필터는 배경/테두리 제거 */
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-card),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-episode-card),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.page-title),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(h1),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(h2),
@@ -143,58 +114,7 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.mode-switch) {
     margin-bottom: 0.5rem !important;
 }
 
-/* --- [기본] Background --- */
-[data-testid="stAppViewContainer"] {
-    background: radial-gradient(1200px 500px at 10% -10%, rgba(99, 102, 241, 0.05), transparent 40%),
-                radial-gradient(1200px 500px at 90% -20%, rgba(236, 72, 153, 0.05), transparent 40%),
-                #f7f8fb;
-}
-
-/* ====== (A) 전역 hover-lift 차단 ====== */
-div[data-testid="stVerticalBlockBorderWrapper"]:hover{
-  transform: none !important;
-  box-shadow: none !important;
-  z-index: auto !important;
-}
-
-/* ====== (B) 컨텐츠 기반 조건부 hover-lift (해당 wrapper만 소폭 리프트) ====== */
-.kpi-card, .block-card, .stPlotlyChart, .ag-theme-streamlit .ag-root-wrapper{
-  transition: transform .18s ease, box-shadow .18s ease;
-  will-change: transform, box-shadow;
-  backface-visibility: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.stPlotlyChart:hover){
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ag-theme-streamlit .ag-root-wrapper:hover){
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-card:hover),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.block-card:hover){
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-
-/* --- [기본] 앱 배경 / 카드 스타일 --- */
-[data-testid="stAppViewContainer"] {
-    background-color: #f8f9fa; /* 매우 연한 회색 배경 */
-}
-div[data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: #ffffff;
-    border: 1px solid #e9e9e9;
-    border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.03);
-    padding: 1.25rem 1.25rem 1.5rem 1.25rem;
-    margin-bottom: 1.5rem;
-}
-
-/* --- [사이드바] 기본 스타일 + 접힘 방지 --- */
+/* 사이드바 */
 section[data-testid="stSidebar"] {
     background: #ffffff;
     border-right: 1px solid #e0e0e0;
@@ -205,29 +125,19 @@ section[data-testid="stSidebar"] {
     max-width:320px !important;
 }
 div[data-testid="collapsedControl"] { display:none !important; }
-
-/* --- [사이드바] 그라디언트 타이틀 --- */
-.page-title-wrap{
-  display:flex; align-items:center; gap:8px; margin:4px 0 10px 0;
-}
+.page-title-wrap{ display:flex; align-items:center; gap:8px; margin:4px 0 10px 0; }
 .page-title-emoji{ font-size:20px; line-height:1; }
 .page-title-main{
   font-size: clamp(18px, 2.2vw, 24px);
   font-weight: 800; letter-spacing:-0.2px; line-height:1.15;
   background: linear-gradient(90deg,#6A5ACD 0%, #A663CC 40%, #FF7A8A 75%, #FF8A3D 100%);
   -webkit-background-clip:text; background-clip:text; color:transparent;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 section[data-testid="stSidebar"] .page-title-wrap{justify-content:center;text-align:center;}
 section[data-testid="stSidebar"] .page-title-main{display:block;text-align:center;}
-section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
-section[data-testid="stSidebar"] .stCaption,
-section[data-testid="stSidebar"] .stMarkdown p.sidebar-contact{ text-align:center !important; }
 
-/* --- [사이드바] 내부 카드/여백 제거 (SIDEBAR CARD STRIP) --- */
+/* 사이드바 내부 카드 제거 */
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
   background: transparent !important;
   border: none !important;
@@ -235,25 +145,8 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]
   padding: 0 !important;
   margin-bottom: 0 !important;
 }
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-  transform: none !important;
-  box-shadow: none !important;
-}
-section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-section[data-testid="stSidebar"] .block-container, 
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  box-shadow: none !important;
-  border: none !important;
-  background: transparent !important;
-}
 
-/* --- [컴포넌트] KPI 카드 --- */
+/* KPI 기본 카드 */
 .kpi-card {
   background: #ffffff;
   border: 1px solid #e9e9e9;
@@ -262,15 +155,13 @@ section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
   text-align: center;
   box-shadow: 0 2px 5px rgba(0,0,0,0.03);
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  display: flex; flex-direction: column; justify-content: center;
 }
 .kpi-title { 
-    font-size: 16px;  /* ← 확대 */
-    font-weight: 700; 
+    font-size: 16px;
+    font-weight: 700;
     margin-bottom: 10px; 
-    color: #333; 
+    color: #333;
     display:flex; align-items:center; justify-content:center;
     text-align:center; line-height:1.3;
 }
@@ -283,83 +174,21 @@ section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
 }
 .kpi-subwrap { margin-top: 10px; line-height: 1.4; text-align:center; }
 .kpi-sublabel { font-size: 12px; font-weight: 500; color: #555; letter-spacing: 0.1px; margin-right: 6px; }
-.kpi-substrong { font-size: 14px; font-weight: 700; color: #111; }
 .kpi-subpct { font-size: 14px; font-weight: 700; }
 
-/* --- [컴포넌트] AgGrid 공통 --- */
-.ag-theme-streamlit { font-size: 13px; }
-.ag-theme-streamlit .ag-root-wrapper { border-radius: 8px; }
-.ag-theme-streamlit .ag-row-hover { background-color: #f5f8ff !important; }
-.ag-theme-streamlit .ag-header-cell-label { justify-content: center !important; }
-.ag-theme-streamlit .centered-header .ag-header-cell-label { justify-content: center !important; }
-.ag-theme-streamlit .centered-header .ag-sort-indicator-container { margin-left: 4px; }
-.ag-theme-streamlit .bold-header .ag-header-cell-text { 
-    font-weight: 700 !important; 
-    font-size: 13px; 
-    color: #111;
-}
-
-/* --- [컴포넌트] 기타 미세 조정 --- */
+/* 섹션 타이틀 */
 .sec-title{ 
     font-size: 20px; 
     font-weight: 700; 
     color: #111; 
     margin: 0 0 10px 0;
-    padding-bottom: 0;
-    border-bottom: none;
-}
-div[data-testid="stMultiSelect"], div[data-testid="stSelectbox"] { margin-top: -10px; }
-h3 { margin-top: -15px; margin-bottom: 10px; }
-h4 { font-weight: 700; color: #111; margin-top: 0rem; margin-bottom: 0.5rem; }
-hr { margin: 1.5rem 0; background-color: #e0e0e0; }
-
-/* ===== Sidebar compact spacing ===== */
-[data-testid="stSidebar"]{
-  --sb-gap: 6px;
-  --sb-pad-y: 8px;
-  --sb-pad-x: 10px;
-  --label-gap: 3px;
-}
-[data-testid="stSidebar"] .block-container{
-  padding: var(--sb-pad-y) var(--sb-pad-x) !important;
-}
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{
-  gap: var(--sb-gap) !important;
-}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, 
-[data-testid="stSidebar"] h4, [data-testid="stSidebar"] h5, [data-testid="stSidebar"] h6{
-  margin: 2px 0 calc(var(--label-gap)+1px) !important;
-}
-[data-testid="stSidebar"] .stMarkdown, 
-[data-testid="stSidebar"] label{
-  margin: 0 0 var(--label-gap) !important;
-  line-height: 1.18 !important;
-}
-[data-testid="stSidebar"] .stButton{ margin: 0 !important; }
-
-</style>
-""", unsafe_allow_html=True)
-#endregion
-
-
-#region [ 2.2. 사이드바 바닥 고정 스타일 ]
-# =====================================================
-# 사이드바를 세로 플렉스 컨테이너로 만들고, .sb-bottom을 아래에 붙인다.
-st.markdown("""
-<style>
-/* 사이드바 컨텐츠를 세로 플렉스 레이아웃으로 */
-section[data-testid="stSidebar"] .block-container{
-  display: flex !important;
-  flex-direction: column !important;
-  min-height: 100vh !important;
 }
 
-/* 최하단 고정 영역 */
-.sb-bottom{
-  margin-top: auto !important;
-  padding: 10px 8px 12px 8px !important;
-  background: transparent !important;
-}
+/* AgGrid */
+.ag-theme-streamlit { font-size: 13px; }
+.ag-theme-streamlit .ag-root-wrapper { border-radius: 8px; }
+.ag-theme-streamlit .ag-header-cell-label { justify-content: center !important; }
+
 </style>
 """, unsafe_allow_html=True)
 #endregion
@@ -367,232 +196,127 @@ section[data-testid="stSidebar"] .block-container{
 
 #region [ 3. 공통 함수: 데이터 로드 / 유틸리티 ]
 # =====================================================
-
-# ===== [신규] 3.0. GSpread 클라이언트 캐싱 =====
 @st.cache_resource(ttl=600)
 def get_gspread_client():
-    """gspread 클라이언트 객체를 인증하고 캐시합니다."""
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     try:
         creds_info = st.secrets["gcp_service_account"]
         creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
         client = gspread.authorize(creds)
         return client
-    except KeyError as e:
-        st.error(f"Streamlit Secrets에 'gcp_service_account' 키가 없습니다. {e}")
-        return None
     except Exception as e:
-        st.error(f"GSpread 클라이언트 인증 실패: {e}")
+        st.error(f"GSpread 인증 실패: {e}")
         return None
 
-# ===== 3.1. 데이터 로드 (gspread) =====
 @st.cache_data(ttl=600)
 def load_data() -> pd.DataFrame:
-    """
-    [수정] Streamlit Secrets와 gspread를 사용하여 비공개 Google Sheet에서 데이터를 인증하고 로드합니다.
-    st.secrets에 'SHEET_ID', 'SHEET_NAME'이 있어야 합니다.
-    """
-    
-    client = get_gspread_client() # [수정] 캐시된 클라이언트 사용
+    client = get_gspread_client()
     if client is None:
         return pd.DataFrame()
-        
     try:
-        # --- 2. 데이터 로드 ---
         sheet_id = st.secrets["SHEET_ID"]
-        worksheet_name = st.secrets["SHEET_NAME"] 
-        
+        worksheet_name = st.secrets["SHEET_NAME"]
         spreadsheet = client.open_by_key(sheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
-        
-        data = worksheet.get_all_records() 
+        data = worksheet.get_all_records()
         df = pd.DataFrame(data)
-
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"Streamlit Secrets의 SHEET_NAME 값 ('{worksheet_name}')에 해당하는 워크시트를 찾을 수 없습니다.")
-        return pd.DataFrame()
-    except KeyError as e:
-        st.error(f"Streamlit Secrets에 필요한 키({e})가 없습니다. TOML 설정을 확인하세요.")
-        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Google Sheets 데이터 로드 중 오류 발생: {e}")
+        st.error(f"데이터 로드 오류: {e}")
         return pd.DataFrame()
 
-    # --- 3. 데이터 전처리 (원본 코드와 동일) ---
     if "주차시작일" in df.columns:
-        df["주차시작일"] = pd.to_datetime(
-            df["주차시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce"
-        )
+        df["주차시작일"] = pd.to_datetime(df["주차시작일"].astype(str).str.strip(), format="%Y. %m. %d", errors="coerce")
     if "방영시작일" in df.columns:
-        df["방영시작일"] = pd.to_datetime(
-            df["방영시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce"
-        )
-
+        df["방영시작일"] = pd.to_datetime(df["방영시작일"].astype(str).str.strip(), format="%Y. %m. %d", errors="coerce")
     if "value" in df.columns:
         v = df["value"].astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
         df["value"] = pd.to_numeric(v, errors="coerce").fillna(0)
-
     for c in ["IP", "편성", "지표구분", "매체", "데모", "metric", "회차", "주차"]:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
-
     if "회차" in df.columns:
-        df["회차_numeric"] = df["회차"].str.extract(r"(\d+)", expand=False).astype(float)
+        df["회차_numeric"] = df["회차"].str.extract(r"(\\d+)", expand=False).astype(float)
     else:
         df["회차_numeric"] = pd.NA
-
     return df
 
-# ===== [신규] 3.1b. C열 URL에서 GID 맵 가져오기 (API) =====
 @st.cache_data(ttl=600)
 def get_tab_gids_from_sheet(edit_url: str) -> Dict[str, int]:
-    """
-    [신규] C열의 /edit URL을 API로 열어 {탭이름: GID} 딕셔너리를 반환합니다.
-    (주의: 서비스 계정이 이 edit_url 시트에 '뷰어'로 초대되어 있어야 합니다.)
-    """
     client = get_gspread_client()
     if client is None: 
         return {}
-        
     try:
         spreadsheet = client.open_by_url(edit_url)
-        # 모든 탭을 순회하며 {탭이름: GID} 맵 생성
-        gid_map = {ws.title.strip(): ws.id for ws in spreadsheet.worksheets()}
-        return gid_map
-        
-    except gspread.exceptions.APIError as e:
-        st.error(f"시트 접근 오류(권한 확인 필요): C열의 URL을 열 수 없습니다.\nURL: {edit_url}\nError: {e}")
-        return {}
-    except Exception as e:
-        st.error(f"C열의 시트({edit_url}) GID 로드 중 오류: {e}")
+        return {ws.title.strip(): ws.id for ws in spreadsheet.worksheets()}
+    except Exception:
         return {}
 
-# ===== 3.1c. [수정] '방영중' 탭 (A,B,C,D열) 처리 =====
 @st.cache_data(ttl=600)
 def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
-    """
-    [수정] '방영중' 탭(A,B,C,D열)을 읽어 최종 임베딩 URL 맵을 생성합니다.
-    1. C열 URL로 GID 맵 가져오기 (get_tab_gids_from_sheet)
-    2. D열 URL에 B열 탭의 GID를 조합하여 최종 URL 생성
-    """
     worksheet_name = "방영중"
-    
     client = get_gspread_client()
     if client is None:
         return {}
-        
     try:
         sheet_id = st.secrets["SHEET_ID"]
         spreadsheet = client.open_by_key(sheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
-        
-        # 'A2:D' 범위의 모든 값을 가져옵니다 (헤더 제외).
         values = worksheet.get_values('A2:D') 
-        
-        # 1. A,B,C,D열 데이터를 IP별로 그룹화
         config_map = {}
         for row in values:
             if row and len(row) > 3 and row[0].strip() and row[1].strip() and row[2].strip() and row[3].strip():
                 ip, tab_name, edit_url, pub_url = [s.strip() for s in row]
-                
                 if ip not in config_map:
                     config_map[ip] = {
-                        "edit_url": edit_url, # C열 (GID 찾기용)
-                        "publish_url_base": pub_url.split('?')[0], # D열 (임베딩용, ?gid= 전까지)
-                        "tabs_to_process": [] # B열 (탭 이름 목록)
+                        "edit_url": edit_url,
+                        "publish_url_base": pub_url.split('?')[0],
+                        "tabs_to_process": []
                     }
                 config_map[ip]["tabs_to_process"].append(tab_name)
 
-        # 2. IP별로 GID를 찾아 최종 URL 조합
         final_data_structure = {}
         for ip, config in config_map.items():
             final_data_structure[ip] = []
-            
-            # C열 URL로 API 호출하여 GID 맵 가져오기
-            gid_map = get_tab_gids_from_sheet(config["edit_url"]) 
-            
-            if not gid_map: # API 호출 실패 시 (권한 오류 등)
-                st.warning(f"'{ip}'의 GID를 C열 시트에서 가져오지 못했습니다. (권한 확인 필요)")
-                continue 
-
-            # B열의 탭 이름을 GID로 변환하고 D열 URL과 조합
+            gid_map = get_tab_gids_from_sheet(config["edit_url"])
+            if not gid_map:
+                continue
             for tab_name in config["tabs_to_process"]:
                 gid = gid_map.get(tab_name.strip())
-                
                 if gid is not None:
-                    # D열 URL 베이스 + 찾은 GID
                     final_url = f"{config['publish_url_base']}?gid={gid}&single=true"
-                    
-                    # '사전 반응' 탭 우선 정렬
                     if "사전 반응" in tab_name:
-                         final_data_structure[ip].insert(0, {"title": tab_name, "url": final_url})
+                        final_data_structure[ip].insert(0, {"title": tab_name, "url": final_url})
                     else:
-                         final_data_structure[ip].append({"title": tab_name, "url": final_url})
-                else:
-                    st.warning(f"'{ip}'의 시트(C열)에서 '{tab_name}'(B열) 탭을 찾을 수 없습니다.")
-
+                        final_data_structure[ip].append({"title": tab_name, "url": final_url})
         return final_data_structure
-
-    except gspread.exceptions.WorksheetNotFound:
-        st.sidebar.error(f"'{worksheet_name}' 탭을 찾을 수 없습니다.")
+    except Exception:
         return {}
-    except Exception as e:
-        st.sidebar.error(f"'방영중' 탭(A:D열) 로드 오류: {e}")
-        return {}
-
-# ===== 3.2. UI / 포맷팅 헬퍼 함수 =====
 
 def fmt(v, digits=3, intlike=False):
-    """
-    숫자 포맷팅 헬퍼 (None이나 NaN은 '–'로 표시)
-    """
     if v is None or pd.isna(v):
         return "–"
     return f"{v:,.0f}" if intlike else f"{v:.{digits}f}"
 
-# ===== [수정] 3.2b. G-Sheet '게시용' URL 렌더러 =====
 def render_published_url(published_url: str):
-    """[수정] '웹에 게시'된 URL을 iframe으로 렌더링합니다. (URL 변환 X)"""
-    
     st.markdown(f"""
-        <iframe
-            src="{published_url}"
-            style="width: 100%; height: 700px; border: 1px solid #e0e0e0; border-radius: 8px;"
-        ></iframe>
+        <iframe src="{published_url}" style="width: 100%; height: 700px; border: 1px solid #e0e0e0; border-radius: 8px;"></iframe>
         """, unsafe_allow_html=True)
 
-
-# ===== 3.3. 페이지 라우팅 / 데이터 헬퍼 함수 =====
-
 def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    '조회수' metric만 필터링하고, 유튜브 PGC/UGC 규칙을 적용하는 공통 유틸.
-    """
     sub = df[df["metric"] == "조회수"].copy()
     if sub.empty:
         return sub
-        
     if "매체" in sub.columns and "세부속성1" in sub.columns:
         yt_mask = (sub["매체"] == "유튜브")
         attr_mask = sub["세부속성1"].isin(["PGC", "UGC"])
         sub = sub[~yt_mask | (yt_mask & attr_mask)]
-    
     return sub
 #endregion
 
 
-#region [ 4. 사이드바 - IP 네비게이션 ]
+#region [ 4. 사이드바 - 네비게이션 ]
 # =====================================================
 def render_sidebar_navigation(on_air_ips: List[str]):
-    """
-    '방영중' 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
-    클릭 시 session_state와 query_params를 동기화 후 rerun합니다.
-    또한 사이드바 최하단에 '데이터 새로고침' 버튼을 제공합니다.
-    """
     st.sidebar.markdown("---")
     st.sidebar.markdown("######  NAVIGATING")
 
@@ -601,56 +325,38 @@ def render_sidebar_navigation(on_air_ips: List[str]):
     if not on_air_ips:
         st.sidebar.warning("'방영중' 탭(A열)에 IP가 없습니다.")
         st.session_state.selected_ip = None
-
-        # === 최하단: 데이터 새로고침 버튼 (IP 리스트가 없어도 항상 표시) ===
-        st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
         st.sidebar.divider()
         if st.sidebar.button("🔄 데이터 새로고침", use_container_width=True, key="btn_refresh_bottom"):
-            # 캐시 강제 무효화 후 즉시 rerun
             try: st.cache_data.clear()
             except Exception: pass
             try: st.cache_resource.clear()
             except Exception: pass
             st.session_state["__last_refresh_ts__"] = int(time.time())
             _rerun()
-        st.sidebar.markdown('</div>', unsafe_allow_html=True)
         return
 
-    # 선택 값 보정
     if current_selected_ip is None or current_selected_ip not in on_air_ips:
         st.session_state.selected_ip = on_air_ips[0]
         current_selected_ip = on_air_ips[0]
 
-    # IP 네비게이션 버튼들
     for ip_name in on_air_ips:
         is_active = (current_selected_ip == ip_name)
-        wrapper_cls = "nav-active" if is_active else "nav-inactive"
-        st.sidebar.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
-
         clicked = st.sidebar.button(
             ip_name,
             key=f"navbtn__{ip_name}",
             use_container_width=True,
             type=("primary" if is_active else "secondary")
         )
-        st.sidebar.markdown('</div>', unsafe_allow_html=True)
-
         if clicked and not is_active:
-            # 세션 상태 갱신
             st.session_state.selected_ip = ip_name
-            # 안전한 URL 파라미터 업데이트
             try:
                 st.query_params.update(ip=ip_name)
             except AttributeError:
                 st.experimental_set_query_params(ip=ip_name)
-            # 즉시 리렌더
             _rerun()
 
-    # === 최하단: 데이터 새로고침 버튼 ===
-    st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
     st.sidebar.divider()
     if st.sidebar.button("🔄 데이터 새로고침", use_container_width=True, key="btn_refresh_bottom_ok"):
-        # 캐시 강제 무효화 후 즉시 rerun
         try: st.cache_data.clear()
         except Exception: pass
         try: st.cache_resource.clear()
@@ -658,230 +364,38 @@ def render_sidebar_navigation(on_air_ips: List[str]):
         st.session_state["__last_refresh_ts__"] = int(time.time())
         _rerun()
 
-    # (선택) 마지막 새로고침 시각 간단 표기
     ts = st.session_state.get("__last_refresh_ts__")
     if ts:
         st.sidebar.caption(f"마지막 갱신: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))}")
-    st.sidebar.markdown('</div>', unsafe_allow_html=True)
 #endregion
 
 
-#region [ 5. 공통 집계 유틸: KPI 계산 ]
+#region [ 5. 유틸: KPI 계산 ]
 # =====================================================
-def _episode_col(df: pd.DataFrame) -> str:
-    """데이터프레임에 존재하는 회차 숫자 컬럼명을 반환합니다."""
-    return "회차_numeric" if "회차_numeric" in df.columns else ("회차_num" if "회차_num" in df.columns else "회차")
+def _normalize_metric(s: str) -> str:
+    if s is None: return ""
+    return re.sub(r"[^A-Za-z0-9가-힣]+", "", str(s)).lower()
 
-def mean_of_ip_episode_sum(df: pd.DataFrame, metric_name: str, media=None) -> float | None:
-    sub = df[(df["metric"] == metric_name)].copy()
-    if media is not None:
-        sub = sub[sub["매체"].isin(media)]
-    if sub.empty:
-        return None
-    ep_col = _episode_col(sub)
-    sub = sub.dropna(subset=[ep_col]).copy()
-    
-    sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
-    sub = sub.dropna(subset=["value"])
+def _metric_filter(df: pd.DataFrame, name: str) -> pd.DataFrame:
+    t = _normalize_metric(name)
+    df2 = df.copy()
+    if "metric_norm" not in df2.columns:
+        df2["metric_norm"] = df2["metric"].apply(_normalize_metric)
+    return df2[df2["metric_norm"] == t]
 
-    ep_sum = sub.groupby(["IP", ep_col], as_index=False)["value"].sum()
-    per_ip_mean = ep_sum.groupby("IP")["value"].mean()
-    return float(per_ip_mean.mean()) if not per_ip_mean.empty else None
-
-
-def mean_of_ip_episode_mean(df: pd.DataFrame, metric_name: str, media=None) -> float | None:
-    sub = df[(df["metric"] == metric_name)].copy()
-    if media is not None:
-        sub = sub[sub["매체"].isin(media)]
-    if sub.empty:
-        return None
-    ep_col = _episode_col(sub)
-    sub = sub.dropna(subset=[ep_col]).copy()
-    
-    sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
-    sub = sub.dropna(subset=["value"])
-
-    ep_mean = sub.groupby(["IP", ep_col], as_index=False)["value"].mean()
-    per_ip_mean = ep_mean.groupby("IP")["value"].mean()
-    return float(per_ip_mean.mean()) if not per_ip_mean.empty else None
-
-
-def mean_of_ip_sums(df: pd.DataFrame, metric_name: str, media=None) -> float | None:
-    
-    if metric_name == "조회수":
-        sub = _get_view_data(df) # [3. 공통 함수]
-    else:
-        sub = df[df["metric"] == metric_name].copy()
-
-    if media is not None:
-        sub = sub[sub["매체"].isin(media)]
-    
-    if sub.empty:
-        return None
-        
-    sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
-    sub = sub.dropna(subset=["value"])
-
-    per_ip_sum = sub.groupby("IP")["value"].sum()
-    return float(per_ip_sum.mean()) if not per_ip_sum.empty else None
-#endregion
-
-
-#region [ 6. 공통 집계 유틸: 데모  ]
-# =====================================================
-# ===== 6.1. 데모 문자열 파싱 유틸 =====
-def _gender_from_demo(s: str):
-    """'데모' 문자열에서 성별(남/여/기타)을 추출합니다."""
-    s = str(s)
-    if any(k in s for k in ["여", "F", "female", "Female"]): return "여"
-    if any(k in s for k in ["남", "M", "male", "Male"]): return "남"
-    return "기타"
-
-def _to_decade_label(x: str):
-    """'데모' 문자열에서 연령대(10대, 20대...)를 추출합니다."""
-    m = re.search(r"\d+", str(x))
-    if not m: return "기타"
-    n = int(m.group(0))
-    return f"{(n//10)*10}대"
-
-def _decade_label_clamped(x: str):
-    """ 10대~60대 범위로 연령대 라벨 생성, 그 외는 None """
-    m = re.search(r"\d+", str(x))
-    if not m: return None
-    n = int(m.group(0))
-    n = max(10, min(60, (n // 10) * 10))
-    return f"{n}대"
-
-def _decade_key(s: str):
-    """연령대 정렬을 위한 숫자 키를 추출합니다."""
-    m = re.search(r"\d+", str(s))
-    return int(m.group(0)) if m else 999
-
-def _fmt_ep(n):
-    """ 회차 번호를 '01화' 형태로 포맷팅 """
+def _fmt_ep(n) -> str:
     try:
         return f"{int(n):02d}화"
     except Exception:
-        return str(n)
-
-# ===== 6.2. 피라미드 차트 렌더링 =====
-COLOR_MALE = "#2a61cc"
-COLOR_FEMALE = "#d93636"
-
-def render_gender_pyramid(container, title: str, df_src: pd.DataFrame, height: int = 260):
-
-    if df_src.empty:
-        container.info("표시할 데이터가 없습니다.")
-        return
-
-    df_demo = df_src.copy()
-    df_demo["성별"] = df_demo["데모"].apply(_gender_from_demo)
-    df_demo["연령대_대"] = df_demo["데모"].apply(_to_decade_label)
-    df_demo = df_demo[df_demo["성별"].isin(["남","여"]) & df_demo["연령대_대"].notna()]
-
-    if df_demo.empty:
-        container.info("표시할 데모 데이터가 없습니다.")
-        return
-
-    order = sorted(df_demo["연령대_대"].unique().tolist(), key=_decade_key)
-
-    pvt = (
-        df_demo.groupby(["연령대_대","성별"])["value"]
-               .sum()
-               .unstack("성별")
-               .reindex(order)
-               .fillna(0)
-    )
-
-    male = -pvt.get("남", pd.Series(0, index=pvt.index))
-    female = pvt.get("여", pd.Series(0, index=pvt.index))
-
-    max_abs = float(max(male.abs().max(), female.max()) or 1)
-
-    male_share = (male.abs() / male.abs().sum() * 100) if male.abs().sum() else male.abs()
-    female_share = (female / female.sum() * 100) if female.sum() else female
-
-    male_text = [f"{v:.1f}%" for v in male_share]
-    female_text = [f"{v:.1f}%" for v in female_share]
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        y=pvt.index, x=male, name="남",
-        orientation="h",
-        marker_color=COLOR_MALE,
-        text=male_text,
-        textposition="inside",
-        insidetextanchor="end",
-        textfont=dict(color="#ffffff", size=12),
-        hovertemplate="연령대=%{y}<br>남성=%{customdata[0]:,.0f}명<br>성별내 비중=%{customdata[1]:.1f}%<extra></extra>",
-        customdata=np.column_stack([male.abs(), male_share])
-    ))
-    fig.add_trace(go.Bar(
-        y=pvt.index, x=female, name="여",
-        orientation="h",
-        marker_color=COLOR_FEMALE,
-        text=female_text,
-        textposition="inside",
-        insidetextanchor="start",
-        textfont=dict(color="#ffffff", size=12),
-        hovertemplate="연령대=%{y}<br>여성=%{customdata[0]:,.0f}명<br>성별내 비중=%{customdata[1]:.1f}%<extra></extra>",
-        customdata=np.column_stack([female, female_share])
-    ))
-
-    fig.update_layout(
-        barmode="overlay",
-        height=height,
-        margin=dict(l=8, r=8, t=48, b=8),
-        legend_title=None,
-        bargap=0.15,
-        bargroupgap=0.05,
-    )
-    fig.update_layout(
-        title=dict(
-            text=title,
-            x=0.0, xanchor="left",
-            y=0.98, yanchor="top",
-            font=dict(size=14)
-        )
-    )
-    fig.update_yaxes(
-        categoryorder="array",
-        categoryarray=order,
-        title=None,
-        tickfont=dict(size=12),
-        fixedrange=True
-    )
-    fig.update_xaxes(
-        range=[-max_abs*1.05, max_abs*1.05],
-        title=None,
-        showticklabels=False,
-        showgrid=False,
-        zeroline=True,
-        zerolinewidth=1,
-        zerolinecolor="#888",
-        fixedrange=True
-    )
-
-    container.plotly_chart(fig, use_container_width=True,
-                           config={"scrollZoom": False, "staticPlot": False, "displayModeBar": False})
+        return "–"
 #endregion
 
 
-#region [ 7. 페이지 2: IP 성과 자세히보기 ]
+#region [ 6. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
 def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]]):
-    """
-    - 상단 필터에 '주차 선택' 포함(기본값: 가장 높은 주차)
-    - KPI는 '앞 회차(1행) / 뒷 회차(2행)'로 구성
-    - 각 행의 첫 카드가 '회차 라벨(XX화)'을 크게 표시하며, 그 카드가 나머지 KPI 카드를 래핑(감싸는) 형태
-    - 평균 비교는 '동일 회차'의 그룹 평균과 비교
-    - 동일 회차 기준의 순위(rank) 표기 복구
-    """
-
-    # ===== 페이지 타이틀 =====
     st.markdown(f"<div class='page-title'>📈 {ip_selected} 시청자 반응 브리핑</div>", unsafe_allow_html=True)
 
-    # ===== 탭 구성 =====
     embeddable_tabs = on_air_data.get(ip_selected, [])
     tab_titles = ["📈 성과 자세히보기"]
     if embeddable_tabs:
@@ -893,7 +407,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     sheet_tabs_widgets = tabs[2:] if len(tabs) >= 3 else []
 
     with main_tab:
-        # ===== 좌: 비교 기준 / 우: 주차 선택 =====
         filter_cols = st.columns([1, 1])
 
         with filter_cols[0]:
@@ -908,14 +421,14 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         df_full = load_data()
         f = df_full[df_full["IP"] == ip_selected].copy()
 
-        # --- 회차/주차 보정 ---
+        # 회차/주차 보정
         if "회차_numeric" in f.columns:
             f["회차_num"] = pd.to_numeric(f["회차_numeric"], errors="coerce")
         else:
-            f["회차_num"] = pd.to_numeric(f["회차"].str.extract(r"(\d+)", expand=False), errors="coerce")
+            f["회차_num"] = pd.to_numeric(f["회차"].str.extract(r"(\\d+)", expand=False), errors="coerce")
 
         def _week_to_num(x: str):
-            m = re.search(r"-?\d+", str(x))
+            m = re.search(r"-?\\d+", str(x))
             return int(m.group(0)) if m else None
 
         has_week_col = "주차" in f.columns
@@ -926,7 +439,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             try:
                 if pd.isna(ep_num): return None
                 n = int(ep_num)
-                return (n + 1) // 2  # 1,2→1 / 3,4→2 / ...
+                return (n + 1) // 2
             except Exception:
                 return None
 
@@ -934,7 +447,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             f["주차_num"] = f["회차_num"].apply(_calc_week_from_episode)
             f["주차"] = f["주차_num"].apply(lambda x: f"{int(x)}주차" if pd.notna(x) else None)
 
-        # --- 비교 그룹 기준용 ---
+        # 비교 그룹 기준
         if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
             date_col_for_filter = "방영시작일"
         else:
@@ -954,7 +467,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         except Exception:
             sel_year = None
 
-        # --- 주차 선택 (기본: 가장 높은 주차) ---
+        # 주차 선택 (기본: 가장 높은 주차) — 음수/0 주차 제외
         valid_weeks = (
             f.dropna(subset=["주차_num"])
              .sort_values("주차_num")["주차_num"]
@@ -962,7 +475,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
              .astype(int)
              .tolist()
         )
-        # ✅ 음수/0 주차는 표시 제외 (옵션 구성 이전에 필터링)
         valid_weeks = [w for w in valid_weeks if w > 0]
 
         default_week_index = max(0, len(valid_weeks) - 1)
@@ -976,7 +488,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 key="week_selector"
             )
 
-        # --- 선택 주차의 앞/뒤 회차 ---
+        # 선택 주차의 앞/뒤 회차
         def _week_to_front_back_eps(week: int) -> tuple[Optional[int], Optional[int]]:
             if week is None: return (None, None)
             front, back = 2*week - 1, 2*week
@@ -985,7 +497,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
         ep_front, ep_back = _week_to_front_back_eps(selected_week)
 
-        # --- 비교 그룹 집합 구성 ---
+        # 비교 그룹 집합
         base = df_full.copy()
         group_name_parts = []
         if "동일 편성" in selected_group_criteria and sel_prog:
@@ -994,33 +506,13 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             base = base[base[date_col_for_filter].dt.year == sel_year]; group_name_parts.append(f"{int(sel_year)}년")
         if not selected_group_criteria or not group_name_parts:
             base = df_full.copy(); group_name_parts = ["전체"]
-        prog_label = " & ".join(group_name_parts) + " 평균"
 
-        # --- 회차 숫자화(베이스) ---
         if "회차_numeric" in base.columns:
             base["회차_num"] = pd.to_numeric(base["회차_numeric"], errors="coerce")
         else:
-            base["회차_num"] = pd.to_numeric(base["회차"].str.extract(r"(\d+)", expand=False), errors="coerce")
+            base["회차_num"] = pd.to_numeric(base["회차"].str.extract(r"(\\d+)", expand=False), errors="coerce")
 
-        # ---------- 유틸 ----------
-        def _normalize_metric(s: str) -> str:
-            if s is None: return ""
-            return re.sub(r"[^A-Za-z0-9가-힣]+", "", str(s)).lower()
-
-        def _metric_filter(df: pd.DataFrame, name: str) -> pd.DataFrame:
-            t = _normalize_metric(name)
-            df2 = df.copy()
-            if "metric_norm" not in df2.columns:
-                df2["metric_norm"] = df2["metric"].apply(_normalize_metric)
-            return df2[df2["metric_norm"] == t]
-
-        def _fmt_ep(n) -> str:
-            try:
-                return f"{int(n):02d}화"
-            except Exception:
-                return "–"
-
-        # --- Ep별 값(해당 IP) ---
+        # 값 계산
         def _value_rating_ep(df_src: pd.DataFrame, metric_name: str, ep_num: int | None) -> Optional[float]:
             if ep_num is None: return None
             sub = _metric_filter(df_src, metric_name)
@@ -1046,14 +538,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             vod  = float(vod)  if vod  > 0 else (None if sub.empty else 0.0)
             return (live, vod)
 
-        # --- 동일 회차 기준: 그룹 평균 / 그룹 내 순위 ---
         def _base_ep_values_series(df_base: pd.DataFrame, metric_name: str, ep_num: int, media: Optional[List[str]] = None, include_quick_in_vod: bool = False) -> pd.Series:
-            """
-            반환: IP별(행) 동일 회차 값 시리즈.
-            - rating류: metric 그대로, per-IP 해당 회차 평균
-            - tving류: metric='시청인구'에서 media 필터로 per-IP 해당 회차 합계
-              include_quick_in_vod=True면 QUICK을 VOD에 합산
-            """
             sub = df_base.copy()
             sub = sub[pd.to_numeric(sub["회차_num"], errors="coerce") == ep_num]
             if sub.empty: return pd.Series(dtype=float)
@@ -1065,7 +550,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 s = sub.groupby("IP")["val"].mean().dropna()
                 return s
 
-            # TVING
             sub = _metric_filter(sub, "시청인구")
             if sub.empty: return pd.Series(dtype=float)
             sub["val"] = pd.to_numeric(sub["value"], errors="coerce")
@@ -1093,9 +577,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
         def _rank_in_base_ep(df_base: pd.DataFrame, metric_name: str, ep_num: int, my_value: Optional[float],
                              media: Optional[List[str]] = None, include_quick_in_vod: bool = False) -> tuple[Optional[int], int]:
-            """
-            동일 회차 내 base 집합의 값 분포에서 my_value의 등수(내림차순), 표본수 반환
-            """
             if my_value is None or pd.isna(my_value):
                 s = _base_ep_values_series(df_base, metric_name, ep_num, media, include_quick_in_vod)
                 return (None, int(s.size))
@@ -1104,39 +585,23 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             rank = int((s >= my_value).sum())
             return (rank, int(s.size))
 
-        # --- KPI 에피소드 래핑 카드 스타일 ---
+        # KPI 회차 래핑 카드 (hover 효과 없음)
         _EP_CARD_STYLE = """
         <style>
-        /* --- 회차 래핑 카드 (레이아웃 이동 없이 시각적 강조만) --- */
         .kpi-episode-card{
             border: 1px solid rgba(0,0,0,.08);
             border-radius: 16px;
             padding: 14px 16px 10px;
             margin: 4px 0 10px;
             background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
-            /* wrapper transform을 안쓰므로 이동 없음 */
-            transform: none !important;
-            box-shadow: none !important;
-            transition: filter .18s ease, box-shadow .18s ease;
-            filter: none;
         }
-        .kpi-episode-card:hover{
-            /* 이동 대신 drop-shadow로만 강조 → 페이지 전체 들썩임 없음 */
-            filter: drop-shadow(0 10px 22px rgba(0,0,0,.12));
-            box-shadow: none !important;
-        }
-
         .kpi-episode-head{
-            font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px;
-            text-align:center;
+            font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px; text-align:center;
         }
         .kpi-metrics{ display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
         .kpi-card.sm{ border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff; }
-
-        /* KPI 제목(가운데 + 폰트 확대) */
         .kpi-title{
-            font-size:16px;
-            color:#333;
+            font-size:16px; color:#333;
             display:flex; align-items:center; justify-content:center; gap:6px;
             text-align:center; line-height:1.3;
         }
@@ -1148,7 +613,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         </style>
         """
         st.markdown(_EP_CARD_STYLE, unsafe_allow_html=True)
-
 
         def _pct_color(val, base_val):
             if val is None or pd.isna(val) or base_val in (None, 0) or pd.isna(base_val):
@@ -1191,35 +655,25 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             )
 
         def _render_episode_kpi_row(ep_num: Optional[int]):
-            """
-            1) 래핑 카드 상단에 회차 크게 표기(선택주차 캡션 없음)
-            2) 내부 4칸 그리드: 타깃시청률/가구시청률/TVING LIVE/TVING VOD(QUICK 합산)
-            3) 평균비교·순위는 '동일 회차' 기준
-            """
             if ep_num is None:
                 st.info("선택 주차의 해당 회차 데이터가 없습니다.")
                 return
-
             ep_label = _fmt_ep(ep_num)
 
-            # 내 값
             vT  = _value_rating_ep(f, "T시청률", ep_num)
             vH  = _value_rating_ep(f, "H시청률", ep_num)
             vLIVE, vVOD = _value_tving_ep_sum(f, ep_num, include_quick_in_vod=True)
 
-            # 동일 회차 그룹 평균
             bT   = _base_ep_mean(base, "T시청률", ep_num)
             bH   = _base_ep_mean(base, "H시청률", ep_num)
             bLIVE = _base_ep_mean(base, "시청인구", ep_num, media=["TVING LIVE"])
             bVOD  = _base_ep_mean(base, "시청인구", ep_num, media=["TVING VOD"], include_quick_in_vod=True)
 
-            # 동일 회차 순위
             rT   = _rank_in_base_ep(base, "T시청률", ep_num, vT)
             rH   = _rank_in_base_ep(base, "H시청률", ep_num, vH)
             rLIVE= _rank_in_base_ep(base, "시청인구", ep_num, vLIVE, media=["TVING LIVE"])
             rVOD = _rank_in_base_ep(base, "시청인구", ep_num, vVOD,  media=["TVING VOD"], include_quick_in_vod=True)
 
-            # HTML 렌더
             html = []
             html.append("<div class='kpi-episode-card'>")
             html.append(f"<div class='kpi-episode-head'>{ep_label}</div>")
@@ -1231,13 +685,12 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             html.append("</div></div>")
             st.markdown("".join(html), unsafe_allow_html=True)
 
-        # === KPI 섹션: 앞 회차 / 뒷 회차 ===
+        # KPI: 앞/뒤 회차
         _render_episode_kpi_row(ep_front)
         _render_episode_kpi_row(ep_back)
 
         st.divider()
 
-        # ===== 이하 그래프/표 =====
         chart_h = 260
         common_cfg = {"scrollZoom": False, "staticPlot": False, "displayModeBar": False}
 
@@ -1430,23 +883,17 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     for tab_widget, tab_info in zip(sheet_tabs_widgets, embeddable_tabs):
         with tab_widget:
             render_published_url(tab_info["url"])
-
 #endregion
 
 
-#region [ 8. 메인 실행 ]
+#region [ 7. 메인 실행 ]
 # =====================================================
-# URL 파라미터와 세션 상태 동기화
-
-# --- 1. 세션 스테이트 초기화 ---
 if "selected_ip" not in st.session_state:
-    st.session_state.selected_ip = None # 사이드바에서 선택한 IP
+    st.session_state.selected_ip = None
 
-# --- 3. '방영중' 데이터 로드 (A, B, C, D열 처리) ---
 on_air_data = load_processed_on_air_data()
 on_air_ips = list(on_air_data.keys())
 
-# --- 4. 초기 로드 시 URL 파라미터 읽기 ---
 try:
     selected_ip_from_url = st.query_params.get("ip", [None])[0]
 except AttributeError:
@@ -1455,16 +902,14 @@ except AttributeError:
 if st.session_state.selected_ip is None and selected_ip_from_url and selected_ip_from_url in on_air_ips:
     st.session_state.selected_ip = selected_ip_from_url
 
-# --- 5. 사이드바 네비게이션 ---
 render_sidebar_navigation(on_air_ips)
 
-# --- 6. 메인 페이지 렌더링 ---
 current_selected_ip = st.session_state.get("selected_ip", None)
 
 if current_selected_ip and selected_ip_from_url != current_selected_ip:
-     try:
+    try:
         st.query_params["ip"] = current_selected_ip
-     except AttributeError:
+    except AttributeError:
         st.experimental_set_query_params(ip=current_selected_ip)
 
 if current_selected_ip:
@@ -1472,8 +917,4 @@ if current_selected_ip:
 else:
     st.markdown("## 📈 IP 성과 자세히보기")
     st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
-
-# === [PATCH] no-lift 스코프 종료 ===
-st.markdown("</div>", unsafe_allow_html=True)
-
 #endregion
