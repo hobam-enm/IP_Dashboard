@@ -1054,7 +1054,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 placeholder="주차 선택",
                 key="week_selector"
             )
-
+        # ✅ 음수/0 주차는 표시 제외
+        valid_weeks = [w for w in valid_weeks if w > 0]
+        
         # --- 선택 주차의 앞/뒤 회차 ---
         def _week_to_front_back_eps(week: int) -> tuple[Optional[int], Optional[int]]:
             if week is None: return (None, None)
@@ -1230,6 +1232,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         # --- KPI 에피소드 래핑 카드(요청 사항 1) ---
         _EP_CARD_STYLE = """
         <style>
+        /* --- KPI 래핑 카드 --- */
         .kpi-episode-card{
             border: 1px solid rgba(0,0,0,.08);
             border-radius: 16px;
@@ -1238,17 +1241,46 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
             box-shadow: 0 12px 28px rgba(0,0,0,.06);
         }
+        /* ✅ 이 섹션 위젯에 마우스오버해도 상위 컨테이너가 떠오르지 않게 강제 */
+        .kpi-episode-card:hover,
+        .kpi-episode-card *:hover{
+            transform: none !important;
+            box-shadow: none !important;
+        }
+        /* ✅ Streamlit의 상위 hover-lift를 KPI 영역에서만 역상쇄(:has 지원 브라우저용) */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-episode-card):hover{
+            transform: none !important;
+            box-shadow: none !important;
+            will-change: auto !important;
+        }
+
         .kpi-episode-head{
             font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px;
+            text-align:center;
         }
+
         .kpi-metrics{
             display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px;
         }
-        .kpi-card.sm{border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff;}
-        .kpi-title{font-size:13px; color:#666; display:flex; align-items:center; gap:6px;}
+
+        .kpi-card.sm{
+            border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff;
+        }
+
+        /* ✅ 제목 폰트 키우고 가운데 정렬 */
+        .kpi-title{
+            font-size:16px;               /* 기존 13px → 16px */
+            color:#333;
+            display:flex; align-items:center; justify-content:center; gap:6px;
+            text-align:center; line-height:1.3;
+        }
         .kpi-title .ep-tag{opacity:.6; font-weight:600;}
-        .kpi-value{font-size:22px; font-weight:800; margin:3px 0 2px;}
-        .kpi-subwrap{font-size:12px; color:#555}
+
+        .kpi-value{
+            font-size:22px; font-weight:800; margin:3px 0 2px; text-align:center;
+        }
+
+        .kpi-subwrap{font-size:12px; color:#555; text-align:center;}
         .kpi-subwrap .kpi-sublabel{opacity:.75}
         .kpi-subwrap .kpi-sep{opacity:.35; padding:0 6px}
         </style>
