@@ -1232,60 +1232,61 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         # --- KPI 에피소드 래핑 카드(요청 사항 1) ---
         _EP_CARD_STYLE = """
         <style>
-        /* === KPI 전용 스코프 ========================================= */
-        /* 스코프 안에서는 Streamlit의 hover-lift(트랜스폼/섀도) 무효화 */
-        .kpi-scope div[data-testid="stVerticalBlockBorderWrapper"],
-        .kpi-scope div[data-testid="stVerticalBlockBorderWrapper"]:hover{
+        /* =========================================================
+           KPI 래핑 카드(.kpi-episode-card)만 살짝 플로팅,
+           그 외에는 플로팅(hover-lift) 전역 차단
+           - Chrome 105+ :has() 지원
+        ========================================================== */
+
+        /* 1) 기본: 페이지 전체 hover-lift 무력화 */
+        div[data-testid="stVerticalBlockBorderWrapper"]:hover{
             transform: none !important;
             box-shadow: none !important;
             will-change: auto !important;
         }
 
-        /* --- KPI 래핑 카드(회차별 전체 박스) --- */
+        /* 2) 단, .kpi-episode-card에 마우스가 올라간 동안에는
+              모든 상위 hover-lift를 다시 '무력화'하여 연쇄 플로팅 방지 */
+        body:has(.kpi-episode-card:hover) div[data-testid="stVerticalBlockBorderWrapper"]{
+            transform: none !important;
+            box-shadow: none !important;
+            will-change: auto !important;
+        }
+
+        /* 3) 우리가 원하는 '개별 카드'만 자체 플로팅 효과 */
         .kpi-episode-card{
             border: 1px solid rgba(0,0,0,.08);
             border-radius: 16px;
             padding: 14px 16px 10px;
             margin: 4px 0 10px;
             background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
-            box-shadow: 0 12px 28px rgba(0,0,0,.06);
+            transition: transform .18s ease, box-shadow .18s ease;
         }
-        /* 래핑 카드 자체 호버도 플로팅 금지 */
-        .kpi-episode-card:hover,
-        .kpi-episode-card *:hover{
-            transform: none !important;
-            box-shadow: none !important;
+        .kpi-episode-card:hover{
+            transform: translateY(-2px) !important;
+            box-shadow: 0 10px 22px rgba(0,0,0,.10) !important;
         }
 
+        /* 헤드/메트릭/카드 내부 스타일(제목 중앙 + 폰트 확대 포함) */
         .kpi-episode-head{
             font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px;
             text-align:center;
         }
+        .kpi-metrics{ display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+        .kpi-card.sm{ border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff; }
 
-        .kpi-metrics{
-            display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px;
-        }
-
-        .kpi-card.sm{
-            border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff;
-        }
-
-        /* KPI 제목(가운데 + 폰트 확대) */
         .kpi-title{
-            font-size:16px;
-            color:#333;
+            font-size:16px; color:#333;
             display:flex; align-items:center; justify-content:center; gap:6px;
             text-align:center; line-height:1.3;
         }
         .kpi-title .ep-tag{opacity:.6; font-weight:600;}
 
-        .kpi-value{
-            font-size:22px; font-weight:800; margin:3px 0 2px; text-align:center;
-        }
+        .kpi-value{ font-size:22px; font-weight:800; margin:3px 0 2px; text-align:center; }
 
-        .kpi-subwrap{font-size:12px; color:#555; text-align:center;}
-        .kpi-subwrap .kpi-sublabel{opacity:.75}
-        .kpi-subwrap .kpi-sep{opacity:.35; padding:0 6px}
+        .kpi-subwrap{ font-size:12px; color:#555; text-align:center; }
+        .kpi-subwrap .kpi-sublabel{ opacity:.75 }
+        .kpi-subwrap .kpi-sep{ opacity:.35; padding:0 6px }
         </style>
         """
         st.markdown(_EP_CARD_STYLE, unsafe_allow_html=True)
