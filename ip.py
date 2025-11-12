@@ -28,6 +28,29 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# === [PATCH] 전역 hover-lift kill switch: 앱 전체를 no-lift 스코프로 감싼다 ===
+st.markdown("""
+<div class="no-lift">
+<style>
+/* no-lift 영역에서는 모든 wrapper의 hover/has(:hover) 변형/그림자를 차단 */
+.no-lift div[data-testid="stVerticalBlockBorderWrapper"],
+.no-lift div[data-testid="stVerticalBlockBorderWrapper"]:hover,
+.no-lift div[data-testid="stVerticalBlockBorderWrapper"]:has(:hover){
+  transform: none !important;
+  box-shadow: none !important;
+  transition: none !important;
+  z-index: auto !important;
+  position: static !important;
+}
+/* wrapper 자체의 트랜지션도 제거 (뒤에서 누가 덮어써도 이게 이김) */
+.no-lift div[data-testid="stVerticalBlockBorderWrapper"]{
+  transition: none !important;
+  will-change: auto !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 #endregion
 
 
@@ -1084,26 +1107,36 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         # --- KPI 에피소드 래핑 카드 스타일 ---
         _EP_CARD_STYLE = """
         <style>
+        /* --- 회차 래핑 카드 (레이아웃 이동 없이 시각적 강조만) --- */
         .kpi-episode-card{
             border: 1px solid rgba(0,0,0,.08);
             border-radius: 16px;
             padding: 14px 16px 10px;
             margin: 4px 0 10px;
             background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
-            transition: transform .18s ease, box-shadow .18s ease;
+            /* wrapper transform을 안쓰므로 이동 없음 */
+            transform: none !important;
+            box-shadow: none !important;
+            transition: filter .18s ease, box-shadow .18s ease;
+            filter: none;
         }
         .kpi-episode-card:hover{
-            transform: translateY(-2px) !important;
-            box-shadow: 0 10px 22px rgba(0,0,0,.10) !important;
+            /* 이동 대신 drop-shadow로만 강조 → 페이지 전체 들썩임 없음 */
+            filter: drop-shadow(0 10px 22px rgba(0,0,0,.12));
+            box-shadow: none !important;
         }
+
         .kpi-episode-head{
             font-weight: 800; font-size: 28px; letter-spacing: -0.02em; margin-bottom: 8px;
             text-align:center;
         }
         .kpi-metrics{ display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
         .kpi-card.sm{ border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff; }
+
+        /* KPI 제목(가운데 + 폰트 확대) */
         .kpi-title{
-            font-size:16px; color:#333;
+            font-size:16px;
+            color:#333;
             display:flex; align-items:center; justify-content:center; gap:6px;
             text-align:center; line-height:1.3;
         }
@@ -1115,6 +1148,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         </style>
         """
         st.markdown(_EP_CARD_STYLE, unsafe_allow_html=True)
+
 
         def _pct_color(val, base_val):
             if val is None or pd.isna(val) or base_val in (None, 0) or pd.isna(base_val):
@@ -1438,5 +1472,8 @@ if current_selected_ip:
 else:
     st.markdown("## 📈 IP 성과 자세히보기")
     st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
-    
+
+# === [PATCH] no-lift 스코프 종료 ===
+st.markdown("</div>", unsafe_allow_html=True)
+
 #endregion
