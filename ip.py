@@ -671,7 +671,7 @@ def render_sidebar_navigation(on_air_ips: List[str]):
     또한 사이드바 최하단에 '데이터 새로고침' 버튼을 제공합니다.
     """
     st.sidebar.markdown("---")
-    st.sidebar.markdown("######  NAVIGATING")
+    st.sidebar.markdown("#####  🛑방영중")
 
     current_selected_ip = st.session_state.get("selected_ip", None)
 
