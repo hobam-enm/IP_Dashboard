@@ -742,6 +742,7 @@ def render_sidebar_navigation(on_air_ips: List[str]):
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
 #endregion
 
+
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
 # =====================================================
 def _episode_col(df: pd.DataFrame) -> str:
@@ -992,26 +993,20 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         # st.markdown(f"### 📈 성과 자세히보기") 
         
         # [수정] 1, 3, 4. '비교 그룹 기준' 필터 수정 (default, placeholder)
-        selected_group_criteria = st.multiselect(
-            "", 
-            ["동일 편성", "방영 연도"],
-            default=[], # [수정] 3. 기본값 없음
-            placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)", # [수정] 4. 문구 추가
-            key="ip_detail_group"
-        )
-        
-        # --- [이하 'render_ip_detail'의 기존 로직을 main_tab 안에 배치] ---
-        
-        df_full = load_data() # [3. 공통 함수]
-        
-        if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
-            date_col_for_filter = "방영시작일"
-        else:
-            date_col_for_filter = "주차시작일"
+        filter_cols = st.columns([1, 1])  # [수정] 좌: 비교 기준, 우: 주차 선택
+        with filter_cols[0]:
+            selected_group_criteria = st.multiselect(
+                "", 
+                ["동일 편성", "방영 연도"],
+                default=[], # [수정] 3. 기본값 없음
+                placeholder="비교 기준을 선택하세요 (미선택 시 '전체' 평균)", # [수정] 4. 문구 추가
+                key="ip_detail_group"
+            )
 
-        # --- 선택 IP / 기간 필터 ---
+        df_full = load_data() # [3. 공통 함수]
         f = df_full[df_full["IP"] == ip_selected].copy()
 
+        # --- 회차/주차 파생 컬럼 보정 ---
         if "회차_numeric" in f.columns:
             f["회차_num"] = pd.to_numeric(f["회차_numeric"], errors="coerce")
         else:
@@ -1024,6 +1019,25 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         has_week_col = "주차" in f.columns
         if has_week_col:
             f["주차_num"] = f["주차"].apply(_week_to_num)
+
+        # --- ep→주차(1-2화=1주, 3-4화=2주...) 계산 보조 (데이터에 주차가 없어도 동작) ---
+        def _calc_week_from_episode(ep_num: float | int | None) -> int | None:
+            try:
+                if pd.isna(ep_num): return None
+                n = int(ep_num)
+                return (n + 1) // 2  # 1,2→1 / 3,4→2 / ...
+            except Exception:
+                return None
+
+        if "주차_num" not in f.columns or f["주차_num"].isna().all():
+            f["주차_num"] = f["회차_num"].apply(_calc_week_from_episode)
+            f["주차"] = f["주차_num"].apply(lambda x: f"{int(x)}주차" if pd.notna(x) else None)
+
+        # --- 비교 그룹 기준용 보조 정보 ---
+        if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
+            date_col_for_filter = "방영시작일"
+        else:
+            date_col_for_filter = "주차시작일"
 
         try:
             sel_prog = f["편성"].dropna().mode().iloc[0]
@@ -1038,6 +1052,40 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             )
         except Exception:
             sel_year = None
+
+        # --- [신규] 주차 선택 필터 (상단 KPI에 영향) ---
+        # 사용 가능한 주차 목록 (정렬)
+        valid_weeks = (
+            f.dropna(subset=["주차_num"])
+             .sort_values("주차_num")["주차_num"]
+             .drop_duplicates()
+             .astype(int)
+             .tolist()
+        )
+        # 디폴트: 가능한 주차 중 가장 높은 주차
+        default_week_index = max(0, len(valid_weeks) - 1)
+        with filter_cols[1]:
+            selected_week = st.selectbox(
+                label="",
+                options=valid_weeks,
+                index=default_week_index if valid_weeks else 0,
+                format_func=lambda w: f"{w}주차",
+                placeholder="주차 선택",
+                key="week_selector"
+            )
+
+        # --- 선택 주차의 앞/뒤 회차 산출 (앞회차=홀수, 뒷회차=짝수) ---
+        def _week_to_front_back_eps(week: int) -> tuple[Optional[int], Optional[int]]:
+            if week is None: return (None, None)
+            front = 2 * week - 1
+            back = 2 * week
+            # 실제 존재 여부 확인
+            eps = f.dropna(subset=["회차_num"])["회차_num"].astype(int).unique().tolist()
+            front_ok = front if front in eps else None
+            back_ok  = back  if back  in eps else None
+            return (front_ok, back_ok)
+
+        ep_front, ep_back = _week_to_front_back_eps(selected_week)
 
         # --- 베이스(비교 그룹 기준) ---
         base = df_full.copy()
@@ -1057,7 +1105,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             else:
                 st.warning(f"'{ip_selected}'의 연도 정보가 없어 '방영 연도' 기준은 제외됩니다.", icon="⚠️")
 
-        # [수정] placeholder에 맞게 미선택 시 '전체'로 동작하도록 보완
         if not selected_group_criteria:
             group_name_parts.append("전체")
             base = df_full.copy()
@@ -1066,8 +1113,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             group_name_parts.append("전체")
             base = df_full.copy()
         elif not group_name_parts:
-             group_name_parts.append("전체")
-             base = df_full.copy()
+            group_name_parts.append("전체")
+            base = df_full.copy()
 
         prog_label = " & ".join(group_name_parts) + " 평균"
 
@@ -1076,7 +1123,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         else:
             base["회차_num"] = pd.to_numeric(base["회차"].str.extract(r"(\d+)", expand=False), errors="coerce")
 
-        st.markdown("---") # st.markdown("---") 대신 <hr> 사용
+        st.markdown("---")
 
         # --- Metric Normalizer (페이지 2 전용) ---
         def _normalize_metric(s: str) -> str:
@@ -1092,127 +1139,49 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 df["metric_norm"] = df["metric"].apply(_normalize_metric)
             return df[df["metric_norm"] == target]
 
-        # --- KPI/평균비/랭킹 계산 ---
-        val_T = mean_of_ip_episode_mean(f, "T시청률") # [5. 공통 함수]
-        val_H = mean_of_ip_episode_mean(f, "H시청률") # [5. 공통 함수]
-        val_live = mean_of_ip_episode_sum(f, "시청인구", ["TVING LIVE"]) # [5. 공통 함수]
-        val_quick = mean_of_ip_episode_sum(f, "시청인구", ["TVING QUICK"]) # [5. 공통 함수]
-        val_vod = mean_of_ip_episode_sum(f, "시청인구", ["TVING VOD"]) # [5. 공통 함수]
-        val_buzz = mean_of_ip_sums(f, "언급량") # [5. 공통 함수]
-        val_view = mean_of_ip_sums(f, "조회수") # [5. 공통 함수]
-
-        # --- 화제성 메트릭 (페이지 2 전용) ---
-        def _min_of_ip_metric(df_src: pd.DataFrame, metric_name: str) -> float | None:
+        # ========= [신규] 회차별 KPI 계산 유틸 (주차 필터 반영) =========
+        def _value_rating_ep(df_src: pd.DataFrame, metric_name: str, ep_num: int | None) -> Optional[float]:
+            if ep_num is None: return None
             sub = _metric_filter(df_src, metric_name).copy()
-            if sub.empty:
-                return None
-            s = pd.to_numeric(sub["value"], errors="coerce").dropna()
-            return float(s.min()) if not s.empty else None
+            sub = sub[pd.to_numeric(sub["회차_num"], errors="coerce") == ep_num]
+            if sub.empty: return None
+            vals = pd.to_numeric(sub["value"], errors="coerce").dropna()
+            return float(vals.mean()) if not vals.empty else None
 
-        def _mean_like_rating(df_src: pd.DataFrame, metric_name: str) -> float | None:
-            sub = _metric_filter(df_src, metric_name).copy()
-            if sub.empty:
-                return None
+        def _value_tving_ep_sum(df_src: pd.DataFrame, ep_num: int | None, include_quick_in_vod: bool = False) -> tuple[Optional[float], Optional[float]]:
+            """
+            반환: (LIVE, VOD) — 단, include_quick_in_vod=True이면 QUICK을 VOD에 합산.
+            """
+            if ep_num is None: return (None, None)
+            sub = _metric_filter(df_src, "시청인구").copy()
+            sub = sub[pd.to_numeric(sub["회차_num"], errors="coerce") == ep_num]
+            if sub.empty: return (None, None)
             sub["val"] = pd.to_numeric(sub["value"], errors="coerce")
             sub = sub.dropna(subset=["val"])
-            if sub.empty:
-                return None
 
-            if "회차_num" in sub.columns and sub["회차_num"].notna().any():
-                g = sub.dropna(subset=["회차_num"]).groupby("회차_num", as_index=False)["val"].mean()
-                return float(g["val"].mean()) if not g.empty else None
+            live = sub[sub["매체"] == "TVING LIVE"]["val"].sum() if "TVING LIVE" in sub["매체"].unique() else 0.0
+            vod_only = sub[sub["매체"] == "TVING VOD"]["val"].sum() if "TVING VOD" in sub["매체"].unique() else 0.0
+            quick = sub[sub["매체"] == "TVING QUICK"]["val"].sum() if "TVING QUICK" in sub["매체"].unique() else 0.0
+            vod = vod_only + (quick if include_quick_in_vod else 0.0)
 
-            if date_col_for_filter in sub.columns and sub[date_col_for_filter].notna().any():
-                g = sub.dropna(subset=[date_col_for_filter]).groupby(date_col_for_filter, as_index=False)["val"].mean()
-                return float(g["val"].mean()) if not g.empty else None
+            # None 처리 일관화
+            live = float(live) if live > 0 else (None if sub.empty else 0.0)
+            vod  = float(vod)  if vod  > 0 else (None if sub.empty else 0.0)
+            return (live, vod)
 
-            return float(sub["val"].mean()) if not sub["val"].empty else None
-
-        val_topic_min = _min_of_ip_metric(f, "F_Total")
-        val_topic_avg = _mean_like_rating(f, "F_score")
-
+        # --- 베이스(그룹 평균) 값(회차 무관, 기존 로직 유지) ---
         base_T = mean_of_ip_episode_mean(base, "T시청률")
         base_H = mean_of_ip_episode_mean(base, "H시청률")
         base_live = mean_of_ip_episode_sum(base, "시청인구", ["TVING LIVE"])
-        base_quick = mean_of_ip_episode_sum(base, "시청인구", ["TVING QUICK"])
-        base_vod = mean_of_ip_episode_sum(base, "시청인구", ["TVING VOD"])
-        base_buzz = mean_of_ip_sums(base, "언급량")
-        base_view = mean_of_ip_sums(base, "조회수")
+        # [수정] QUICK을 VOD에 합산한 베이스 계산: ep_sum_mean을 따로 합산
+        base_vod_only = mean_of_ip_episode_sum(base, "시청인구", ["TVING VOD"])
+        base_quick    = mean_of_ip_episode_sum(base, "시청인구", ["TVING QUICK"])
+        base_vod = (base_vod_only or 0) + (base_quick or 0)
+        base_vod = None if (base_vod_only is None and base_quick is None) else float(base_vod)
 
-        # --- 화제성 베이스값 (페이지 2 전용) ---
-        def _series_ip_metric(base_df: pd.DataFrame, metric_name: str, mode: str = "mean", media: List[str] | None = None):
-            
-            if metric_name == "조회수":
-                sub = _get_view_data(base_df) # [3. 공통 함수]
-            else:
-                sub = _metric_filter(base_df, metric_name).copy()
-
-            if media is not None:
-                sub = sub[sub["매체"].isin(media)]
-            if sub.empty:
-                return pd.Series(dtype=float)
-
-            ep_col = _episode_col(sub) # [5. 공통 함수]
-            sub = sub.dropna(subset=[ep_col])
-            if sub.empty: 
-                return pd.Series(dtype=float)
-
-            sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
-            sub = sub.dropna(subset=["value"])
-            if sub.empty:
-                return pd.Series(dtype=float)
-
-            if mode == "mean":
-                ep_mean = sub.groupby(["IP", ep_col], as_index=False)["value"].mean()
-                s = ep_mean.groupby("IP")["value"].mean()
-            elif mode == "sum":
-                s = sub.groupby("IP")["value"].sum()
-            elif mode == "ep_sum_mean":
-                ep_sum = sub.groupby(["IP", ep_col], as_index=False)["value"].sum()
-                s = ep_sum.groupby("IP")["value"].mean()
-            elif mode == "min":
-                s = sub.groupby("IP")["value"].min()
-            else:
-                s = sub.groupby("IP")["value"].mean() # mode="mean"의 폴백
-                
-            return pd.to_numeric(s, errors="coerce").dropna()
-
-        base_topic_min_series = _series_ip_metric(base, "F_Total", mode="min")
-        base_topic_min = float(base_topic_min_series.mean()) if not base_topic_min_series.empty else None
-        base_topic_avg = _mean_like_rating(base, "F_score")
-
-        # --- 랭킹 계산 유틸 (페이지 2 전용) ---
-        def _rank_within_program(
-            base_df: pd.DataFrame, metric_name: str, ip_name: str, value: float,
-            mode: str = "mean", media: List[str] | None = None, low_is_good: bool = False
-        ):
-            s = _series_ip_metric(base_df, metric_name, mode=mode, media=media)
-            if s.empty or value is None or pd.isna(value):
-                return (None, 0)
-            if ip_name not in s.index:
-                if low_is_good:
-                    r = int((s < value).sum() + 1)
-                else:
-                    r = int((s > value).sum() + 1)
-                return (r, int(s.shape[0]))
-            
-            s = s.dropna()
-            if ip_name not in s.index:
-                return (None, int(s.shape[0]))
-                
-            ranks = s.rank(method="min", ascending=low_is_good)
-            r = int(ranks.loc[ip_name])
-            return (r, int(s.shape[0]))
-
-        rk_T     = _rank_within_program(base, "T시청률", ip_selected, val_T,   mode="mean",        media=None)
-        rk_H     = _rank_within_program(base, "H시청률", ip_selected, val_H,   mode="mean",        media=None)
-        rk_live  = _rank_within_program(base, "시청인구", ip_selected, val_live,  mode="ep_sum_mean", media=["TVING LIVE"])
-        rk_quick = _rank_within_program(base, "시청인구", ip_selected, val_quick, mode="ep_sum_mean", media=["TVING QUICK"])
-        rk_vod   = _rank_within_program(base, "시청인구", ip_selected, val_vod,   mode="ep_sum_mean", media=["TVING VOD"])
-        rk_buzz  = _rank_within_program(base, "언급량",   ip_selected, val_buzz,  mode="sum",        media=None)
-        rk_view  = _rank_within_program(base, "조회수",   ip_selected, val_view,  mode="sum",        media=None)
-        rk_fmin  = _rank_within_program(base, "F_Total",  ip_selected, val_topic_min, mode="min",   media=None, low_is_good=True)
-        rk_fscr  = _rank_within_program(base, "F_score",  ip_selected, val_topic_avg, mode="mean",  media=None, low_is_good=False)
+        # --- 랭킹 계산 유틸 (페이지 2 전용) : 에피소드 단위 값은 랭킹을 표기하지 않음(–위) ---
+        def _rank_dummy():
+            return (None, 0)
 
         # --- KPI 렌더 유틸 (페이지 2 전용) ---
         def _pct_color(val, base_val):
@@ -1221,9 +1190,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             pct = (val / base_val) * 100
             return "#d93636" if pct > 100 else ("#2a61cc" if pct < 100 else "#444")
 
-        def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val):
-            rnk, total = rank_tuple if rank_tuple else (None, 0)
-            rank_label = f"{rnk}위" if (rnk is not None and total > 0) else "–위"
+        def sublines_html_ep(base_val, val):
             pct_txt = "–"; col = "#888"
             try:
                 if (val is not None) and (base_val not in (None, 0)) and (not (pd.isna(val) or pd.isna(base_val))):
@@ -1231,76 +1198,69 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     pct_txt = f"{pct:.0f}%"; col = _pct_color(val, base_val)
             except Exception:
                 pct_txt = "–"; col = "#888"
+            # 랭킹은 에피소드 기준 미표기
             return (
                 "<div class='kpi-subwrap'>"
-                "<span class='kpi-sublabel'>그룹 內</span> "
-                f"<span class='kpi-substrong'>{rank_label}</span><br/>"
-                "<span class='kpi-sublabel'>그룹 평균比</span> "
+                f"<span class='kpi-sublabel'>그룹 평균比</span> "
                 f"<span class='kpi-subpct' style='color:{col};'>{pct_txt}</span>"
                 "</div>"
             )
 
-        def sublines_dummy():
-            return (
-                "<div class='kpi-subwrap' style='visibility:hidden;'>"
-                "<span class='kpi-sublabel'>_</span> <span class='kpi-substrong'>_</span><br/>"
-                "<span class='kpi-sublabel'>_</span> <span class='kpi-subpct'>_</span>"
-                "</div>"
-            )
-
-        def kpi_with_rank(col, title, value, base_val, rank_tuple, prog_label,
-                          intlike=False, digits=3, value_suffix:str=""):
+        def kpi_card(col, title, value, base_val, ep_label, intlike=False, digits=3, suffix:str=""):
             with col:
-                main_val = fmt(value, digits=digits, intlike=intlike) # [3. 공통 함수]
-                main = f"{main_val}{value_suffix}"
+                main_val = fmt(value, digits=digits, intlike=intlike)  # [3. 공통 함수]
+                main = f"{main_val}{suffix}"
                 st.markdown(
                     f"<div class='kpi-card'>"
-                    f"<div class='kpi-title'>{title}</div>"
+                    f"<div class='kpi-title'>{title} <span style='opacity:.65;font-weight:500;'>· {ep_label}</span></div>"
                     f"<div class='kpi-value'>{main}</div>"
-                    f"{sublines_html(prog_label, rank_tuple, value, base_val)}"
+                    f"{sublines_html_ep(base_val, value)}"
                     f"</div>",
                     unsafe_allow_html=True
                 )
 
-        def kpi_dummy(col):
+        def kpi_week_badge(col, week_num: int):
             with col:
                 st.markdown(
-                    "<div class='kpi-card'>"
-                    "<div class='kpi-title' style='visibility:hidden;'>_</div>"
-                    "<div class='kpi-value' style='visibility:hidden;'>_</div>"
-                    f"{sublines_dummy()}"
-                    "</div>",
+                    f"<div class='kpi-card' style='align-items:center;justify-content:center;'>"
+                    f"<div class='kpi-title' style='font-size:14px;color:#666;'>선택 주차</div>"
+                    f"<div class='kpi-value' style='font-size:36px;'>{week_num}주차</div>"
+                    f"</div>",
                     unsafe_allow_html=True
                 )
 
-        # === KPI 배치 ===
-        r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns(5)
-        kpi_with_rank(r1c1, "🎯 타깃시청률",    val_T,   base_T,   rk_T,     prog_label, intlike=False, digits=3)
-        kpi_with_rank(r1c2, "🏠 가구시청률",    val_H,   base_H,   rk_H,     prog_label, intlike=False, digits=3)
-        kpi_with_rank(r1c3, "📺 TVING LIVE",     val_live,  base_live,  rk_live,  prog_label, intlike=True)
-        kpi_with_rank(r1c4, "⚡ TVING QUICK",    val_quick, base_quick, rk_quick, prog_label, intlike=True)
-        kpi_with_rank(r1c5, "▶️ TVING VOD",      val_vod,   base_vod,   rk_vod,   prog_label, intlike=True)
+        # === [상단 KPI] — 2행 구성: 앞회차(1행) / 뒷회차(2행) ===
+        # 1행: 앞회차
+        r1c0, r1c1, r1c2, r1c3, r1c4 = st.columns([1.2, 1, 1, 1, 1])
+        kpi_week_badge(r1c0, selected_week)
+        if ep_front is not None:
+            ep_label_front = f"{int(ep_front):02d}화"
+            vT_front  = _value_rating_ep(f, "T시청률", ep_front)
+            vH_front  = _value_rating_ep(f, "H시청률", ep_front)
+            vLIVE_front, vVOD_front = _value_tving_ep_sum(f, ep_front, include_quick_in_vod=True)
 
-        r2c1, r2c2, r2c3, r2c4, r2c5 = st.columns(5)
-        kpi_with_rank(r2c1, "💬 총 언급량",     val_buzz,  base_buzz,  rk_buzz,  prog_label, intlike=True)
-        kpi_with_rank(r2c2, "👀 디지털 조회수", val_view,  base_view,  rk_view,  prog_label, intlike=True)
+            kpi_card(r1c1, "🎯 타깃시청률", vT_front, base_T, ep_label_front, intlike=False, digits=3)
+            kpi_card(r1c2, "🏠 가구시청률", vH_front, base_H, ep_label_front, intlike=False, digits=3)
+            kpi_card(r1c3, "📺 TVING LIVE", vLIVE_front, base_live, ep_label_front, intlike=True)
+            kpi_card(r1c4, "▶️ TVING VOD",  vVOD_front,  base_vod,  ep_label_front, intlike=True)
+        else:
+            st.info("선택 주차의 앞 회차 데이터가 없습니다.")
 
-        with r2c3:
-            v = val_topic_min
-            main_val = "–" if (v is None or pd.isna(v)) else f"{int(round(v)):,d}위"
-            st.markdown(
-                "<div class='kpi-card'>"
-                "<div class='kpi-title'>🏆 최고 화제성 순위</div>"
-                f"<div class='kpi-value'>{main_val}</div>"
-                f"{sublines_dummy()}"
-                "</div>",
-                unsafe_allow_html=True
-            )
+        # 2행: 뒷회차
+        r2c0, r2c1, r2c2, r2c3, r2c4 = st.columns([1.2, 1, 1, 1, 1])
+        kpi_week_badge(r2c0, selected_week)
+        if ep_back is not None:
+            ep_label_back = f"{int(ep_back):02d}화"
+            vT_back  = _value_rating_ep(f, "T시청률", ep_back)
+            vH_back  = _value_rating_ep(f, "H시청률", ep_back)
+            vLIVE_back, vVOD_back = _value_tving_ep_sum(f, ep_back, include_quick_in_vod=True)
 
-        kpi_with_rank(r2c4, "🔥 화제성 점수",     val_topic_avg, base_topic_avg, rk_fscr,
-                      prog_label, intlike=True)
-
-        kpi_dummy(r2c5)
+            kpi_card(r2c1, "🎯 타깃시청률", vT_back, base_T, ep_label_back, intlike=False, digits=3)
+            kpi_card(r2c2, "🏠 가구시청률", vH_back, base_H, ep_label_back, intlike=False, digits=3)
+            kpi_card(r2c3, "📺 TVING LIVE", vLIVE_back, base_live, ep_label_back, intlike=True)
+            kpi_card(r2c4, "▶️ TVING VOD",  vVOD_back,  base_vod,  ep_label_back, intlike=True)
+        else:
+            st.info("선택 주차의 뒷 회차 데이터가 없습니다.")
 
         st.divider()
 
@@ -1431,16 +1391,18 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         cE, cF = st.columns(2)
         with cE:
             st.markdown("<div class='sec-title'>🔥 화제성 지수</div>", unsafe_allow_html=True)
-            fdx = _metric_filter(f, "F_Total").copy()
+            fdx = _metric_filter(f, "FTotal").copy() if "metric_norm" in f.columns else _metric_filter(f, "F_Total").copy()
             if not fdx.empty:
                 fdx["순위"] = pd.to_numeric(fdx["value"], errors="coerce").round().astype("Int64")
 
-                if has_week_col and fdx["주차"].notna().any():
-                    order = (
-                        fdx[["주차", "주차_num"]].dropna()
-                        .drop_duplicates()
-                        .sort_values("주차_num")["주차"].tolist()
-                    )
+                order = (
+                    f[["주차", "주차_num"]]
+                    .dropna()
+                    .drop_duplicates()
+                    .sort_values("주차_num")["주차"]
+                    .tolist()
+                )
+                if "주차" in fdx.columns and fdx["주차"].notna().any():
                     s = fdx.groupby("주차", as_index=True)["순위"].min().reindex(order).dropna()
                     x_vals = s.index.tolist(); use_category = True
                 else:
