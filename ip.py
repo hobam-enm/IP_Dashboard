@@ -1056,7 +1056,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             )
         # ✅ 음수/0 주차는 표시 제외
         valid_weeks = [w for w in valid_weeks if w > 0]
-        
+
         # --- 선택 주차의 앞/뒤 회차 ---
         def _week_to_front_back_eps(week: int) -> tuple[Optional[int], Optional[int]]:
             if week is None: return (None, None)
@@ -1232,7 +1232,16 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         # --- KPI 에피소드 래핑 카드(요청 사항 1) ---
         _EP_CARD_STYLE = """
         <style>
-        /* --- KPI 래핑 카드 --- */
+        /* === KPI 전용 스코프 ========================================= */
+        /* 스코프 안에서는 Streamlit의 hover-lift(트랜스폼/섀도) 무효화 */
+        .kpi-scope div[data-testid="stVerticalBlockBorderWrapper"],
+        .kpi-scope div[data-testid="stVerticalBlockBorderWrapper"]:hover{
+            transform: none !important;
+            box-shadow: none !important;
+            will-change: auto !important;
+        }
+
+        /* --- KPI 래핑 카드(회차별 전체 박스) --- */
         .kpi-episode-card{
             border: 1px solid rgba(0,0,0,.08);
             border-radius: 16px;
@@ -1241,17 +1250,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(250,250,255,.92));
             box-shadow: 0 12px 28px rgba(0,0,0,.06);
         }
-        /* ✅ 이 섹션 위젯에 마우스오버해도 상위 컨테이너가 떠오르지 않게 강제 */
+        /* 래핑 카드 자체 호버도 플로팅 금지 */
         .kpi-episode-card:hover,
         .kpi-episode-card *:hover{
             transform: none !important;
             box-shadow: none !important;
-        }
-        /* ✅ Streamlit의 상위 hover-lift를 KPI 영역에서만 역상쇄(:has 지원 브라우저용) */
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-episode-card):hover{
-            transform: none !important;
-            box-shadow: none !important;
-            will-change: auto !important;
         }
 
         .kpi-episode-head{
@@ -1267,9 +1270,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             border:1px solid rgba(0,0,0,.06); border-radius:12px; padding:10px 12px; background:#fff;
         }
 
-        /* ✅ 제목 폰트 키우고 가운데 정렬 */
+        /* KPI 제목(가운데 + 폰트 확대) */
         .kpi-title{
-            font-size:16px;               /* 기존 13px → 16px */
+            font-size:16px;
             color:#333;
             display:flex; align-items:center; justify-content:center; gap:6px;
             text-align:center; line-height:1.3;
@@ -1286,6 +1289,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         </style>
         """
         st.markdown(_EP_CARD_STYLE, unsafe_allow_html=True)
+
 
         def _render_episode_kpi_row(ep_num: Optional[int]):
             """
@@ -1330,8 +1334,10 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             st.markdown("".join(html), unsafe_allow_html=True)
 
         # === KPI 섹션: 앞 회차 / 뒷 회차 ===
+        st.markdown("<div class='kpi-scope'>", unsafe_allow_html=True)   # ✅ 스코프 시작
         _render_episode_kpi_row(ep_front)
         _render_episode_kpi_row(ep_back)
+        st.markdown("</div>", unsafe_allow_html=True)                     # ✅ 스코프 종료
 
         st.divider()
 
