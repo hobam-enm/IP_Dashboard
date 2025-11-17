@@ -1095,7 +1095,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     """
 
     # ===== 1. 고정 페이지 타이틀 (항상 표시) =====
-    st.markdown(f"<div class='page-title'>📈 {ip_selected} 시청자 반응 브리핑</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>📣 {ip_selected} 시청자 반응 브리핑</div>", unsafe_allow_html=True)
 
     # ===== 2. 탭 UI 구성 (페이지 상단) =====
     
