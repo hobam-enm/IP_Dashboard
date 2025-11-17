@@ -1174,10 +1174,10 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             st.markdown("<div class='gd-guideline'>", unsafe_allow_html=True)
             st.markdown(textwrap.dedent("""
                 **지표 기준**
-            - **시청률** `회차평균`: 전국 기준 가구 / 타깃(2049) 시청률
+            - **시청률** `회차평균`: 전국 기준 가구 & 타깃(2049) 시청률
             - **티빙 LIVE** `회차평균`: 실시간 시청 UV
-            - **티빙 당일 VOD** `회차평균`: (구 티빙 퀵) 본방송 당일 VOD UV
-            - **티빙 주간 VOD** `회차평균`: 회차 방영일부터 +6일까지의 7일간 VOD UV
+            - **티빙 당일 VOD** `회차평균`: 본방송 당일 VOD UV
+            - **티빙 주간 VOD** `회차평균`: 회차 방영일부터 +6일까지의 7일간 VOD UV - 당일 VOD
             - **디지털 조회/언급량** `회차총합`: 방영주차(월~일) 내 총합
             - **화제성 점수** `회차평균`: 방영기간 주차별 화제성 점수 평균
             """).strip())
