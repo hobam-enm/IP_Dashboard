@@ -647,7 +647,7 @@ def render_published_url(published_url: str):
     st.markdown(f"""
         <iframe
             src="{published_url}"
-            style="width: 800px; height: 900px; border: 1px solid #e0e0e0; border-radius: 8px;"
+            style="width: 1600px; height: 900px; border: 1px solid #e0e0e0; border-radius: 8px;"
         ></iframe>
         """, unsafe_allow_html=True)
 
