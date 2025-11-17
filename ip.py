@@ -78,6 +78,10 @@ div[data-testid="stDecoration"] {
     display: none !important; /* 상단 컬러 데코레이션 바 숨김 */
 }
 
+div[data-testid="stAppViewBlock"] {
+    padding-top: 0.5rem !important; /* 원하는 값으로 조정 (예: 1rem = 16px) */
+}
+            
 /* --- [기본] Hover foundation & Title/Box exceptions --- */
 div[data-testid="stVerticalBlockBorderWrapper"]{
     transition: transform .18s ease, box-shadow .18s ease !important;
