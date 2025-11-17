@@ -199,8 +199,6 @@ section[data-testid="stSidebar"] {
     padding-top: 1rem;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
-    min-width:250px !important;
-    max-width:250px !important;
 }
 div[data-testid="collapsedControl"] { display:none !important; }
 
@@ -210,7 +208,7 @@ div[data-testid="collapsedControl"] { display:none !important; }
 }
 .page-title-emoji{ font-size:20px; line-height:1; }
 .page-title-main{
-  font-size: clamp(18px, 2.2vw, 24px);
+  font-size: clamp(18px, 2.2vw, 16px);
   font-weight: 800; letter-spacing:-0.2px; line-height:1.15;
   background: linear-gradient(90deg,#6A5ACD 0%, #A663CC 40%, #FF7A8A 75%, #FF8A3D 100%);
   -webkit-background-clip:text; background-clip:text; color:transparent;
