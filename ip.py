@@ -364,6 +364,7 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]
   --sb-pad-y: 8px;
   --sb-pad-x: 10px;
   --label-gap: 3px;
+  max-width:250px !important;
 }
 [data-testid="stSidebar"] .block-container{
   padding: var(--sb-pad-y) var(--sb-pad-x) !important;
