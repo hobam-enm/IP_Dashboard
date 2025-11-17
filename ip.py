@@ -26,7 +26,7 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(
     page_title="시청자 반응 브리핑", # 페이지 타이틀 수정
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 #endregion
 
@@ -67,6 +67,17 @@ with st.sidebar:
 # (이 영역은 원본과 동일하게 유지됩니다)
 st.markdown("""
 <style>
+
+ /* -------------------------------------------------------------------
+   0. [추가] 스트림릿 기본 헤더(Toolbar) 숨기기
+   ------------------------------------------------------------------- */
+header[data-testid="stHeader"] {
+    display: none !important; /* 상단 헤더 영역 전체 숨김 */
+}
+div[data-testid="stDecoration"] {
+    display: none !important; /* 상단 컬러 데코레이션 바 숨김 */
+}
+
 /* --- [기본] Hover foundation & Title/Box exceptions --- */
 div[data-testid="stVerticalBlockBorderWrapper"]{
     transition: transform .18s ease, box-shadow .18s ease !important;
@@ -188,8 +199,8 @@ section[data-testid="stSidebar"] {
     padding-top: 1rem;
     padding-left: 0.5rem;
     padding-right: 0.5rem;
-    min-width:320px !important;
-    max-width:320px !important;
+    min-width:250px !important;
+    max-width:250px !important;
 }
 div[data-testid="collapsedControl"] { display:none !important; }
 
