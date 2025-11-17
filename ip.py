@@ -1407,7 +1407,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 
         # === [Row3] 디지털 조회수/언급량 ===
-        cC, cD = st.columns(2)
+        cC, cD, cE = st.columns(3)
         digital_colors = ['#5c6bc0', '#7e57c2', '#26a69a', '#66bb6a', '#ffa726', '#ef5350'] # [신규] 디지털 색상
         
         with cC:
@@ -1493,9 +1493,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             else:
                 st.info("표시할 언급량 데이터가 없습니다.")
 
-
-        # === [Row4] 화제성 ===
-        cE, cF = st.columns(2)
         with cE:
             st.markdown("<div class='sec-title'>🔥 화제성 점수 & 순위</div>", unsafe_allow_html=True) # [수정] 제목
             fdx = _metric_filter(f, "F_Total").copy(); fs = _metric_filter(f, "F_score").copy()
@@ -1540,9 +1537,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 else: st.info("표시할 화제성 데이터가 없습니다.")
             else: st.info("표시할 화제성 데이터가 없습니다.")
 
-        with cF:
-            # [수정] 빈 공간 표시
-            st.markdown("<div style='height:320px;display:flex;align-items:center;justify-content:center;color:#ccc;'></div>", unsafe_allow_html=True)
 
 
         st.divider()
