@@ -78,8 +78,12 @@ div[data-testid="stDecoration"] {
     display: none !important; /* 상단 컬러 데코레이션 바 숨김 */
 }
 
+/* --- [추가] 메인 컨텐츠 상단 패딩 줄이기 (가장 중요) --- */
 div[data-testid="stAppViewBlock"] {
-    padding-top: 0.5rem !important; /* 원하는 값으로 조정 (예: 1rem = 16px) */
+    padding-top: 1rem !important; /* 메인 블록 상단 여백을 줄임 */
+}
+.block-container {
+    padding-top: 0rem !important; /* 위젯 컨테이너의 상단 패딩을 제거 */
 }
             
 /* --- [기본] Hover foundation & Title/Box exceptions --- */
@@ -212,7 +216,7 @@ div[data-testid="collapsedControl"] { display:none !important; }
 }
 .page-title-emoji{ font-size:20px; line-height:1; }
 .page-title-main{
-  font-size: clamp(18px, 2.2vw, 16px);
+  font-size: clamp(18px, 2.2vw, 24px);
   font-weight: 800; letter-spacing:-0.2px; line-height:1.15;
   background: linear-gradient(90deg,#6A5ACD 0%, #A663CC 40%, #FF7A8A 75%, #FF8A3D 100%);
   -webkit-background-clip:text; background-clip:text; color:transparent;
