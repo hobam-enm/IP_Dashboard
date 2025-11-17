@@ -782,6 +782,7 @@ def render_sidebar_navigation(on_air_ips: List[str]):
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
 #endregion
 
+
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
 # =====================================================
 def _episode_col(df: pd.DataFrame) -> str:
@@ -1111,24 +1112,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         df_full = load_data() 
 
         # [수정] 필터 UI를 신버전 로직으로 교체
-        # 순서: 타이틀(3) | IP선택(2) | 방영연도(2) | 편성기준(2) -> IP는 이미 선택됨 (사이드바)
-        filter_cols = st.columns([1, 2, 2, 2])
+        # [수정] filter_cols를 [1, 1] 비율로 조정하여 필터 2개만 배치
+        filter_cols = st.columns([1, 1])
 
-        with filter_cols[0]:
-            # [신규] 지표 기준 안내 추가
-            with st.expander("ℹ️ 지표 기준 안내", expanded=False):
-                st.markdown("<div class='gd-guideline'>", unsafe_allow_html=True)
-                st.markdown(textwrap.dedent("""
-                    **지표 기준**
-                - **시청률** `회차평균`: 전국 기준 가구 / 타깃(2049) 시청률
-                - **티빙 LIVE** `회차평균`: 실시간 시청 UV
-                - **티빙 당일 VOD** `회차평균`: (구 티빙 퀵) 본방송 당일 VOD UV
-                - **티빙 주간 VOD** `회차평균`: 회차 방영일부터 +6일까지의 7일간 VOD UV
-                - **디지털 조회/언급량** `회차총합`: 방영주차(월~일) 내 총합
-                - **화제성 점수** `회차평균`: 방영기간 주차별 화제성 점수 평균
-                """).strip())
-                st.markdown("</div>", unsafe_allow_html=True)
-        
         # --- 데이터 전처리 (Default 설정을 위해 위치 이동) ---
         if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
             date_col_for_filter = "방영시작일"
@@ -1154,8 +1140,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         if date_col_for_filter in df_full.columns:
             all_years = sorted(df_full[date_col_for_filter].dropna().dt.year.unique().astype(int).tolist(), reverse=True)
 
-        # [Col 2] 방영 연도
-        with filter_cols[1]:
+        # [수정] [Col 1] 방영 연도
+        with filter_cols[0]:
             selected_years = st.multiselect(
                 "방영 연도",
                 all_years,
@@ -1164,8 +1150,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 label_visibility="collapsed"
             )
 
-        # [Col 3] 동일 편성 여부 (셀렉트박스)
-        with filter_cols[2]:
+        # [수정] [Col 2] 동일 편성 여부 (셀렉트박스)
+        with filter_cols[1]:
             comp_type = st.selectbox(
                 "편성 기준",
                 ["동일 편성", "전체"], 
@@ -1173,6 +1159,21 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 label_visibility="collapsed"
             )
             use_same_prog = (comp_type == "동일 편성")
+
+        # [신규] 지표 기준 안내를 필터 행 아래 별도 행에 배치
+        with st.expander("ℹ️ 지표 기준 안내", expanded=False):
+            st.markdown("<div class='gd-guideline'>", unsafe_allow_html=True)
+            st.markdown(textwrap.dedent("""
+                **지표 기준**
+            - **시청률** `회차평균`: 전국 기준 가구 / 타깃(2049) 시청률
+            - **티빙 LIVE** `회차평균`: 실시간 시청 UV
+            - **티빙 당일 VOD** `회차평균`: (구 티빙 퀵) 본방송 당일 VOD UV
+            - **티빙 주간 VOD** `회차평균`: 회차 방영일부터 +6일까지의 7일간 VOD UV
+            - **디지털 조회/언급량** `회차총합`: 방영주차(월~일) 내 총합
+            - **화제성 점수** `회차평균`: 방영기간 주차별 화제성 점수 평균
+            """).strip())
+            st.markdown("</div>", unsafe_allow_html=True)
+
 
         # --- 선택 IP 데이터 필터링 ---
         f = target_ip_rows.copy()
@@ -1682,8 +1683,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         with tab_widget:
             st.markdown(f"### {tab_info['title']}")
             render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
-
-#endregion
 
 
 #region [ 8. 메인 실행 ]
