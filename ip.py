@@ -1186,6 +1186,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             - **티빙 LIVE** `누적 회차평균`: 실시간 시청 UV
             - **티빙 당일 VOD** `누적 회차평균`: 본방송 당일 VOD UV
             - **티빙 주간 VOD** `누적 회차평균`: 회차 방영일부터 +6일까지의 7일간 VOD UV - 당일 VOD
+            - **웨이브 VOD** `누적 회차평균`: 웨이브 회차별 시청자수
             - **디지털 조회/언급량** `누적 회차총합`: 방영주차(월~일) 내 총합
             - **화제성 점수** `누적 주차평균`: 방영기간 주차별 화제성 점수 평균
             """).strip())
@@ -1263,6 +1264,10 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         val_live = mean_of_ip_episode_sum(f, "시청인구", ["TVING LIVE"])
         val_quick = mean_of_ip_episode_sum(f, "시청인구", ["TVING QUICK"]) 
         val_vod = mean_of_ip_episode_sum(f, "시청인구", ["TVING VOD"])
+        
+        # [신규] Wavve VOD (metric="시청자수", media="웨이브")
+        val_wavve = mean_of_ip_episode_sum(f, "시청자수", ["웨이브"])
+
         val_buzz = mean_of_ip_sums(f, "언급량")
         val_view = mean_of_ip_sums(f, "조회수")
         val_topic_min = _min_of_ip_metric(f, "F_Total")
@@ -1273,6 +1278,10 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         base_live = mean_of_ip_episode_sum(base, "시청인구", ["TVING LIVE"])
         base_quick = mean_of_ip_episode_sum(base, "시청인구", ["TVING QUICK"])
         base_vod = mean_of_ip_episode_sum(base, "시청인구", ["TVING VOD"])
+        
+        # [신규] Wavve VOD Base
+        base_wavve = mean_of_ip_episode_sum(base, "시청자수", ["웨이브"])
+
         base_buzz = mean_of_ip_sums(base, "언급량")
         base_view = mean_of_ip_sums(base, "조회수")
         base_topic_min_series = _series_ip_metric(base, "F_Total", mode="min")
@@ -1286,6 +1295,10 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         rk_live  = _rank_within_program(base, "시청인구", ip_selected, val_live,  mode="ep_sum_mean", media=["TVING LIVE"])
         rk_quick = _rank_within_program(base, "시청인구", ip_selected, val_quick, mode="ep_sum_mean", media=["TVING QUICK"])
         rk_vod   = _rank_within_program(base, "시청인구", ip_selected, val_vod,   mode="ep_sum_mean", media=["TVING VOD"])
+        
+        # [신규] Wavve Rank
+        rk_wavve = _rank_within_program(base, "시청자수", ip_selected, val_wavve, mode="ep_sum_mean", media=["웨이브"])
+
         rk_buzz  = _rank_within_program(base, "언급량",   ip_selected, val_buzz,  mode="sum",        media=None)
         rk_view  = _rank_within_program(base, "조회수",   ip_selected, val_view,  mode="sum",        media=None)
         rk_fmin  = _rank_within_program(base, "F_Total",  ip_selected, val_topic_min, mode="min",   media=None, low_is_good=True)
@@ -1313,7 +1326,12 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 unsafe_allow_html=True
             )
         kpi_with_rank(c9, "🔥 화제성 점수", val_topic_avg, base_topic_avg, rk_fscr, prog_label, intlike=True)
-        kpi_dummy(c10)
+        
+        # [수정] 마지막 5번째 슬롯: Wavve 데이터 있으면 표시, 없으면 Dummy
+        if val_wavve is not None and not pd.isna(val_wavve):
+            kpi_with_rank(c10, "🌊 Wavve VOD", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True)
+        else:
+            kpi_dummy(c10)
 
         st.divider()
 
@@ -1321,7 +1339,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         chart_h = 320
         common_cfg = {"scrollZoom": False, "staticPlot": False, "displayModeBar": False}
 
-        # === [Row1] 시청률 | 티빙 ===
+        # === [Row1] 시청률 | [수정] OTT (TVING/Wavve) ===
         cA, cB = st.columns(2)
         with cA:
             st.markdown("<div class='sec-title'>📈 시청률</div>", unsafe_allow_html=True)
@@ -1352,55 +1370,111 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             else:
                 st.info("표시할 시청률 데이터가 없습니다.")
 
+        # [수정] 옵션 A: 웨이브 데이터 존재 여부에 따른 탭 분기 처리
         with cB:
-            st.markdown("<div class='sec-title'>📱 TVING 시청자수</div>", unsafe_allow_html=True)
-            t_keep = ["TVING LIVE", "TVING QUICK", "TVING VOD"]
-            tsub = f[(f["metric"] == "시청인구") & (f["매체"].isin(t_keep))].dropna(subset=["회차", "회차_num"]).copy()
-            tsub = tsub.sort_values("회차_num")
+            # 웨이브 데이터 존재 여부 확인
+            wsub = f[(f["metric"] == "시청자수") & (f["매체"] == "웨이브")].dropna(subset=["회차", "회차_num"]).copy()
+            has_wavve = not wsub.empty
             
-            if not tsub.empty:
-                media_map = {"TVING LIVE": "LIVE", "TVING QUICK": "당일 VOD", "TVING VOD": "주간 VOD"}
-                tsub["매체_표기"] = tsub["매체"].map(media_map)
-                
-                pvt = tsub.pivot_table(index="회차", columns="매체_표기", values="value", aggfunc="sum").fillna(0)
-                ep_order = tsub[["회차", "회차_num"]].drop_duplicates().sort_values("회차_num")["회차"].tolist()
-                pvt = pvt.reindex(ep_order)
-                
-                stack_order = ["LIVE", "당일 VOD", "주간 VOD"]
-                colors = {"LIVE": "#90caf9", "당일 VOD": "#64b5f6", "주간 VOD": "#1565c0"}
-                
-                fig_tving = go.Figure()
-                for m in stack_order:
-                    if m in pvt.columns:
-                        # [수정] 신버전 Bar trace 적용 (text=None)
-                        fig_tving.add_trace(go.Bar(
-                            name=m, x=pvt.index, y=pvt[m],
-                            marker_color=colors[m],
-                            text=None, # 레이블 제거
-                            hovertemplate=f"<b>%{{x}}</b><br>{m}: %{{y:,.0f}}<extra></extra>"
-                        ))
-                
-                total_vals = pvt[list(set(pvt.columns) & set(stack_order))].sum(axis=1)
-                max_val = total_vals.max()
-                total_txt = [fmt_live_kor(v) for v in total_vals] # [수정] fmt_live_kor 사용
-                
-                # [신규] 총합 레이블만 유지
-                fig_tving.add_trace(go.Scatter(
-                    x=pvt.index, y=total_vals, mode='text',
-                    text=total_txt, textposition='top center',
-                    textfont=dict(size=11, color='#333'),
-                    showlegend=False, hoverinfo='skip'
-                ))
+            container_tving = None
+            container_wavve = None
 
-                fig_tving.update_layout(
-                    barmode='stack', height=chart_h, margin=dict(l=8, r=8, t=10, b=8),
-                    legend=dict(orientation='h', yanchor='bottom', y=1.02),
-                    yaxis=dict(showgrid=False, visible=False, range=[0, max_val * 1.2]), # [수정] y축 invisible
-                    xaxis=dict(categoryorder="array", categoryarray=ep_order, fixedrange=True)
-                )
-                st.plotly_chart(fig_tving, use_container_width=True, config=common_cfg)
+            if has_wavve:
+                # 탭 생성 (헤더 역할 대체)
+                tab_t, tab_w = st.tabs(["TVING", "Wavve"])
+                container_tving = tab_t
+                container_wavve = tab_w
             else:
-                st.info("표시할 TVING 시청자 데이터가 없습니다.")
+                # 기존 타이틀 + 컨테이너
+                st.markdown("<div class='sec-title'>📱 TVING 시청자수</div>", unsafe_allow_html=True)
+                container_tving = st.container()
+            
+            # --- 1. TVING Chart Rendering ---
+            with container_tving:
+                t_keep = ["TVING LIVE", "TVING QUICK", "TVING VOD"]
+                tsub = f[(f["metric"] == "시청인구") & (f["매체"].isin(t_keep))].dropna(subset=["회차", "회차_num"]).copy()
+                tsub = tsub.sort_values("회차_num")
+                
+                if not tsub.empty:
+                    media_map = {"TVING LIVE": "LIVE", "TVING QUICK": "당일 VOD", "TVING VOD": "주간 VOD"}
+                    tsub["매체_표기"] = tsub["매체"].map(media_map)
+                    
+                    pvt = tsub.pivot_table(index="회차", columns="매체_표기", values="value", aggfunc="sum").fillna(0)
+                    ep_order = tsub[["회차", "회차_num"]].drop_duplicates().sort_values("회차_num")["회차"].tolist()
+                    pvt = pvt.reindex(ep_order)
+                    
+                    stack_order = ["LIVE", "당일 VOD", "주간 VOD"]
+                    colors = {"LIVE": "#90caf9", "당일 VOD": "#64b5f6", "주간 VOD": "#1565c0"}
+                    
+                    fig_tving = go.Figure()
+                    for m in stack_order:
+                        if m in pvt.columns:
+                            # [수정] 신버전 Bar trace 적용 (text=None)
+                            fig_tving.add_trace(go.Bar(
+                                name=m, x=pvt.index, y=pvt[m],
+                                marker_color=colors[m],
+                                text=None, # 레이블 제거
+                                hovertemplate=f"<b>%{{x}}</b><br>{m}: %{{y:,.0f}}<extra></extra>"
+                            ))
+                    
+                    total_vals = pvt[list(set(pvt.columns) & set(stack_order))].sum(axis=1)
+                    max_val = total_vals.max()
+                    total_txt = [fmt_live_kor(v) for v in total_vals] # [수정] fmt_live_kor 사용
+                    
+                    # [신규] 총합 레이블만 유지
+                    fig_tving.add_trace(go.Scatter(
+                        x=pvt.index, y=total_vals, mode='text',
+                        text=total_txt, textposition='top center',
+                        textfont=dict(size=11, color='#333'),
+                        showlegend=False, hoverinfo='skip'
+                    ))
+
+                    fig_tving.update_layout(
+                        barmode='stack', height=chart_h, margin=dict(l=8, r=8, t=10, b=8),
+                        legend=dict(orientation='h', yanchor='bottom', y=1.02),
+                        yaxis=dict(showgrid=False, visible=False, range=[0, max_val * 1.2]), # [수정] y축 invisible
+                        xaxis=dict(categoryorder="array", categoryarray=ep_order, fixedrange=True)
+                    )
+                    st.plotly_chart(fig_tving, use_container_width=True, config=common_cfg)
+                else:
+                    st.info("표시할 TVING 시청자 데이터가 없습니다.")
+
+            # --- 2. Wavve Chart Rendering (If exists) ---
+            if has_wavve and container_wavve:
+                with container_wavve:
+                    wsub = wsub.sort_values("회차_num")
+                    ep_order_w = wsub[["회차", "회차_num"]].drop_duplicates().sort_values("회차_num")["회차"].tolist()
+                    
+                    # Pivot for safety, though it's likely single series
+                    pvt_w = wsub.pivot_table(index="회차", values="value", aggfunc="sum").reindex(ep_order_w).fillna(0)
+                    
+                    max_val_w = pvt_w["value"].max()
+                    val_txt_w = [fmt_live_kor(v) for v in pvt_w["value"]]
+                    
+                    fig_wavve = go.Figure()
+                    fig_wavve.add_trace(go.Bar(
+                        name="Wavve", x=pvt_w.index, y=pvt_w["value"],
+                        marker_color="#1e88e5", # Wavve Blue-ish
+                        text=None,
+                        hovertemplate="<b>%{x}</b><br>Wavve: %{y:,.0f}<extra></extra>"
+                    ))
+                    
+                    # Label
+                    fig_wavve.add_trace(go.Scatter(
+                        x=pvt_w.index, y=pvt_w["value"], mode='text',
+                        text=val_txt_w, textposition='top center',
+                        textfont=dict(size=11, color='#333'),
+                        showlegend=False, hoverinfo='skip'
+                    ))
+                    
+                    fig_wavve.update_layout(
+                        height=chart_h, margin=dict(l=8, r=8, t=10, b=8),
+                        legend=dict(orientation='h', yanchor='bottom', y=1.02),
+                        yaxis=dict(showgrid=False, visible=False, range=[0, max_val_w * 1.2]),
+                        xaxis=dict(categoryorder="array", categoryarray=ep_order_w, fixedrange=True)
+                    )
+                    st.plotly_chart(fig_wavve, use_container_width=True, config=common_cfg)
+
 
         # === [Row2] 데모 분포 ===
         cG, cH, cI = st.columns(3)
@@ -1694,6 +1768,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         with tab_widget:
             st.markdown(f"### {tab_info['title']}")
             render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
+#endregion
 
 
 #region [ 8. 메인 실행 ]
