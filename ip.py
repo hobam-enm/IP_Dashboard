@@ -960,9 +960,7 @@ def _render_pyramid_local(container, title: str, df_src: pd.DataFrame, height: i
 
 #region [ 7. 페이지 2: IP 성과 자세히보기 ]
 # =====================================================
-# [수정] 신버전 Dashboard_test.py의 render_ip_detail 로직으로 완전히 대체 (단, 탭 구조 유지)
 
-# [신규] Metric Normalizer (Dashboard_test.py 8.에서 이식)
 def _normalize_metric(s: str) -> str:
     if s is None: return ""
     s2 = re.sub(r"[^A-Za-z0-9가-힣]+", "", str(s)).lower()
@@ -1185,8 +1183,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             - **시청률** `누적 회차평균`: 전국 기준 가구 & 타깃(2049) 시청률
             - **티빙 LIVE UV** `누적 회차평균`: 실시간 시청 UV
             - **티빙 당일 VOD UV** `누적 회차평균`: 본방송 당일 VOD UV
-            - **티빙 주간 VOD UV** `누적 회차평균`: [회차 방영일부터 +6일까지의 7일간 VOD UV] - [티빙 당일 VOD]
-                *주간 VOD수치는 방영 7일 후 업데이트 됩니다.
+            - **티빙 주간 VOD UV** `누적 회차평균`: [회차 방영일부터 +6일까지의 7일간 VOD UV] - [티빙 당일 VOD] `*주간 VOD수치는 방영 7일 후 업데이트 됩니다.`
             - **디지털 조회** `누적 회차총합`: 방영주간 월~일 발생 총합 / 유튜브,인스타그램,틱톡,네이버TV,페이스북
             - **디지털 언급량** `누적 회차총합`: 방영주차(월~일) 내 총합 / 커뮤니티,트위터,블로그                            
             - **화제성 점수** `누적 회차평균`: 방영기간 주차별 화제성 점수의 평균 (펀덱스)
@@ -1310,9 +1307,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         c1, c2, c3, c4, c5 = st.columns(5)
         kpi_with_rank(c1, "🎯 타깃시청률",    val_T, base_T, rk_T, prog_label, digits=3)
         kpi_with_rank(c2, "🏠 가구시청률",    val_H, base_H, rk_H, prog_label, digits=3)
-        kpi_with_rank(c3, "📺 TVING LIVE",     val_live, base_live, rk_live, prog_label, intlike=True)
-        kpi_with_rank(c4, "⚡ TVING 당일 VOD",  val_quick, base_quick, rk_quick, prog_label, intlike=True)
-        kpi_with_rank(c5, "▶️ TVING 주간 VOD", val_vod, base_vod, rk_vod, prog_label, intlike=True)
+        kpi_with_rank(c3, "📺 티빙 LIVE UV",     val_live, base_live, rk_live, prog_label, intlike=True)
+        kpi_with_rank(c4, "⚡ 티빙 당일 VOD UV",  val_quick, base_quick, rk_quick, prog_label, intlike=True)
+        kpi_with_rank(c5, "▶️ 티빙 주간 VOD UV", val_vod, base_vod, rk_vod, prog_label, intlike=True)
 
         # === KPI 배치 (Row 2) ===
         c6, c7, c8, c9, c10 = st.columns(5)
@@ -1330,7 +1327,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         
         # [수정] 마지막 5번째 슬롯: Wavve 데이터 있으면 표시, 없으면 Dummy
         if val_wavve is not None and not pd.isna(val_wavve):
-            kpi_with_rank(c10, "🌊 Wavve VOD", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True)
+            kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True)
         else:
             kpi_dummy(c10)
 
