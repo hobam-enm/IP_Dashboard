@@ -1339,7 +1339,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         chart_h = 320
         common_cfg = {"scrollZoom": False, "staticPlot": False, "displayModeBar": False}
 
-        # === [Row1] 시청률 | [수정] OTT (TVING/Wavve) ===
+        # === [Row1] 시청률 | [수정] OTT (TVING + Wavve Hidden) ===
         cA, cB = st.columns(2)
         with cA:
             st.markdown("<div class='sec-title'>📈 시청률</div>", unsafe_allow_html=True)
@@ -1370,110 +1370,98 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             else:
                 st.info("표시할 시청률 데이터가 없습니다.")
 
-        # [수정] 옵션 A: 웨이브 데이터 존재 여부에 따른 탭 분기 처리
+        # [수정] OTT 차트: TVING + Wavve(Hidden) 통합
         with cB:
-            # 웨이브 데이터 존재 여부 확인
+            # 1. 데이터 준비
+            # (1) TVING 데이터
+            t_keep = ["TVING LIVE", "TVING QUICK", "TVING VOD"]
+            tsub = f[(f["metric"] == "시청인구") & (f["매체"].isin(t_keep))].dropna(subset=["회차", "회차_num"]).copy()
+            
+            # (2) Wavve 데이터 확인
             wsub = f[(f["metric"] == "시청자수") & (f["매체"] == "웨이브")].dropna(subset=["회차", "회차_num"]).copy()
             has_wavve = not wsub.empty
             
-            container_tving = None
-            container_wavve = None
+            # 타이틀 결정
+            chart_title = "📱 TVING & Wavve 시청자수" if has_wavve else "📱 TVING 시청자수"
+            st.markdown(f"<div class='sec-title'>{chart_title}</div>", unsafe_allow_html=True)
 
-            if has_wavve:
-                # 탭 생성 (헤더 역할 대체)
-                tab_t, tab_w = st.tabs(["TVING", "Wavve"])
-                container_tving = tab_t
-                container_wavve = tab_w
-            else:
-                # 기존 타이틀 + 컨테이너
-                st.markdown("<div class='sec-title'>📱 TVING 시청자수</div>", unsafe_allow_html=True)
-                container_tving = st.container()
-            
-            # --- 1. TVING Chart Rendering ---
-            with container_tving:
-                t_keep = ["TVING LIVE", "TVING QUICK", "TVING VOD"]
-                tsub = f[(f["metric"] == "시청인구") & (f["매체"].isin(t_keep))].dropna(subset=["회차", "회차_num"]).copy()
-                tsub = tsub.sort_values("회차_num")
+            if not tsub.empty or not wsub.empty:
+                # --- 데이터 합치기 ---
+                combined = pd.DataFrame()
                 
                 if not tsub.empty:
                     media_map = {"TVING LIVE": "LIVE", "TVING QUICK": "당일 VOD", "TVING VOD": "주간 VOD"}
                     tsub["매체_표기"] = tsub["매체"].map(media_map)
-                    
-                    pvt = tsub.pivot_table(index="회차", columns="매체_표기", values="value", aggfunc="sum").fillna(0)
-                    ep_order = tsub[["회차", "회차_num"]].drop_duplicates().sort_values("회차_num")["회차"].tolist()
-                    pvt = pvt.reindex(ep_order)
-                    
-                    stack_order = ["LIVE", "당일 VOD", "주간 VOD"]
-                    colors = {"LIVE": "#90caf9", "당일 VOD": "#64b5f6", "주간 VOD": "#1565c0"}
-                    
-                    fig_tving = go.Figure()
-                    for m in stack_order:
-                        if m in pvt.columns:
-                            # [수정] 신버전 Bar trace 적용 (text=None)
-                            fig_tving.add_trace(go.Bar(
-                                name=m, x=pvt.index, y=pvt[m],
-                                marker_color=colors[m],
-                                text=None, # 레이블 제거
-                                hovertemplate=f"<b>%{{x}}</b><br>{m}: %{{y:,.0f}}<extra></extra>"
-                            ))
-                    
-                    total_vals = pvt[list(set(pvt.columns) & set(stack_order))].sum(axis=1)
+                    combined = pd.concat([combined, tsub[["회차", "회차_num", "매체_표기", "value"]]])
+                
+                if has_wavve:
+                    wsub["매체_표기"] = "Wavve"
+                    combined = pd.concat([combined, wsub[["회차", "회차_num", "매체_표기", "value"]]])
+                
+                # Pivot
+                pvt = combined.pivot_table(index="회차", columns="매체_표기", values="value", aggfunc="sum").fillna(0)
+                
+                # 정렬 (회차 기준)
+                ep_order = combined[["회차", "회차_num"]].drop_duplicates().sort_values("회차_num")["회차"].tolist()
+                pvt = pvt.reindex(ep_order)
+                
+                # --- 차트 그리기 ---
+                fig_ott = go.Figure()
+                
+                # 1) TVING Traces (Always Visible)
+                tving_stack_order = ["LIVE", "당일 VOD", "주간 VOD"]
+                tving_colors = {"LIVE": "#90caf9", "당일 VOD": "#64b5f6", "주간 VOD": "#1565c0"}
+                
+                for m in tving_stack_order:
+                    if m in pvt.columns:
+                        fig_ott.add_trace(go.Bar(
+                            name=m, x=pvt.index, y=pvt[m],
+                            marker_color=tving_colors[m],
+                            text=None,
+                            hovertemplate=f"<b>%{{x}}</b><br>{m}: %{{y:,.0f}}<extra></extra>"
+                        ))
+                
+                # 2) Wavve Trace (Visible='legendonly')
+                if "Wavve" in pvt.columns:
+                    fig_ott.add_trace(go.Bar(
+                        name="Wavve", x=pvt.index, y=pvt["Wavve"],
+                        marker_color="#5c6bc0", # Wavve 전용 컬러 (인디고 계열)
+                        visible='legendonly', # [핵심] 기본 숨김 처리
+                        text=None,
+                        hovertemplate="<b>%{x}</b><br>Wavve: %{y:,.0f}<extra></extra>"
+                    ))
+
+                # 3) Total Label (TVING Sum Only - Default View 기준)
+                # 웨이브가 켜지면 막대 높이는 올라가지만, Total 텍스트는 TVING 합계 위치에 남음 (UI 복잡도 최소화)
+                tving_cols = [c for c in pvt.columns if c in tving_stack_order]
+                if tving_cols:
+                    total_vals = pvt[tving_cols].sum(axis=1)
                     max_val = total_vals.max()
-                    total_txt = [fmt_live_kor(v) for v in total_vals] # [수정] fmt_live_kor 사용
+                    # 만약 웨이브가 더 크다면 max_val 보정 (축 잘림 방지)
+                    if "Wavve" in pvt.columns:
+                        max_val = max(max_val, (total_vals + pvt["Wavve"]).max())
+
+                    total_txt = [fmt_live_kor(v) for v in total_vals]
                     
-                    # [신규] 총합 레이블만 유지
-                    fig_tving.add_trace(go.Scatter(
+                    fig_ott.add_trace(go.Scatter(
                         x=pvt.index, y=total_vals, mode='text',
                         text=total_txt, textposition='top center',
                         textfont=dict(size=11, color='#333'),
                         showlegend=False, hoverinfo='skip'
                     ))
-
-                    fig_tving.update_layout(
-                        barmode='stack', height=chart_h, margin=dict(l=8, r=8, t=10, b=8),
-                        legend=dict(orientation='h', yanchor='bottom', y=1.02),
-                        yaxis=dict(showgrid=False, visible=False, range=[0, max_val * 1.2]), # [수정] y축 invisible
-                        xaxis=dict(categoryorder="array", categoryarray=ep_order, fixedrange=True)
-                    )
-                    st.plotly_chart(fig_tving, use_container_width=True, config=common_cfg)
                 else:
-                    st.info("표시할 TVING 시청자 데이터가 없습니다.")
+                    max_val = pvt.max().max() if not pvt.empty else 100
 
-            # --- 2. Wavve Chart Rendering (If exists) ---
-            if has_wavve and container_wavve:
-                with container_wavve:
-                    wsub = wsub.sort_values("회차_num")
-                    ep_order_w = wsub[["회차", "회차_num"]].drop_duplicates().sort_values("회차_num")["회차"].tolist()
-                    
-                    # Pivot for safety, though it's likely single series
-                    pvt_w = wsub.pivot_table(index="회차", values="value", aggfunc="sum").reindex(ep_order_w).fillna(0)
-                    
-                    max_val_w = pvt_w["value"].max()
-                    val_txt_w = [fmt_live_kor(v) for v in pvt_w["value"]]
-                    
-                    fig_wavve = go.Figure()
-                    fig_wavve.add_trace(go.Bar(
-                        name="Wavve", x=pvt_w.index, y=pvt_w["value"],
-                        marker_color="#1e88e5", # Wavve Blue-ish
-                        text=None,
-                        hovertemplate="<b>%{x}</b><br>Wavve: %{y:,.0f}<extra></extra>"
-                    ))
-                    
-                    # Label
-                    fig_wavve.add_trace(go.Scatter(
-                        x=pvt_w.index, y=pvt_w["value"], mode='text',
-                        text=val_txt_w, textposition='top center',
-                        textfont=dict(size=11, color='#333'),
-                        showlegend=False, hoverinfo='skip'
-                    ))
-                    
-                    fig_wavve.update_layout(
-                        height=chart_h, margin=dict(l=8, r=8, t=10, b=8),
-                        legend=dict(orientation='h', yanchor='bottom', y=1.02),
-                        yaxis=dict(showgrid=False, visible=False, range=[0, max_val_w * 1.2]),
-                        xaxis=dict(categoryorder="array", categoryarray=ep_order_w, fixedrange=True)
-                    )
-                    st.plotly_chart(fig_wavve, use_container_width=True, config=common_cfg)
+                fig_ott.update_layout(
+                    barmode='stack', height=chart_h, margin=dict(l=8, r=8, t=10, b=8),
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02),
+                    yaxis=dict(showgrid=False, visible=False, range=[0, max_val * 1.25]),
+                    xaxis=dict(categoryorder="array", categoryarray=ep_order, fixedrange=True)
+                )
+                st.plotly_chart(fig_ott, use_container_width=True, config=common_cfg)
+                
+            else:
+                st.info("표시할 시청자 데이터가 없습니다.")
 
 
         # === [Row2] 데모 분포 ===
