@@ -724,13 +724,12 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
     return sub
 #endregion
 
-
 #region [ 4. 사이드바 - IP 네비게이션 ]
 # =====================================================
 def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     """
-    [수정] '종영' 섹션을 st.expander로 감싸고, 기본적으로 접힌 상태(False)로 설정합니다.
-    단, 현재 선택된 IP가 종영작 리스트에 있다면 편의상 열어둡니다.
+    [수정] CSS로 인해 expander 테두리가 안 보이는 문제를 해결하기 위해
+    강제 구분선(divider)을 추가하여 시각적으로 확실히 분리합니다.
     """
     
     # 1. IP 리스트 분리
@@ -740,7 +739,7 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     all_ips = list(ip_status_map.keys())
     current_selected_ip = st.session_state.get("selected_ip", None)
 
-    # 2. 데이터가 없는 경우 처리
+    # 2. 데이터 유효성 체크
     if not all_ips:
         st.sidebar.warning("'방영중' 탭에 IP 데이터가 없습니다.")
         st.session_state.selected_ip = None
@@ -774,7 +773,7 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     # 4. 섹션별 렌더링
     st.sidebar.markdown("---")
     
-    # [섹션 1] 방영중 (항상 노출)
+    # [섹션 1] 방영중
     st.sidebar.markdown("##### 🛑 방영중")
     if on_air_list:
         for ip in on_air_list:
@@ -782,14 +781,16 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     else:
         st.sidebar.caption("방영중인 IP가 없습니다.")
 
-    # [섹션 2] 종영 (접이식)
+    # [섹션 2] 종영 (구분선 추가)
     if ended_list:
-        # st.sidebar.markdown("---") # expander 자체에 경계선이 있으므로 구분선은 취향껏 제거/유지
+        # [수정] 여기에 구분선을 확실하게 넣어줍니다.
+        st.sidebar.markdown("---") 
         
-        # [로직] 기본은 닫힘(False)이나, 현재 보고 있는 IP가 '종영' 목록에 있으면 열어둠(True)
+        # 현재 선택된 IP가 종영작이면 열어두기
         is_ended_section_active = (current_selected_ip in ended_list)
         
-        with st.sidebar.expander("🏁 종영 (Click)", expanded=is_ended_section_active):
+        # Expander 제목에 아이콘을 넣어 구분을 돕습니다.
+        with st.sidebar.expander("🏁 종영작 보기 (Click)", expanded=is_ended_section_active):
             for ip in ended_list:
                 _render_nav_button(ip)
 
