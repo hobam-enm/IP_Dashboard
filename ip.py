@@ -729,25 +729,24 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 # =====================================================
 def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     """
-    [수정] E열 상태값에 따라 '방영중'과 '종영' 섹션을 나누어 렌더링합니다.
+    [수정] '종영' 섹션을 st.expander로 감싸고, 기본적으로 접힌 상태(False)로 설정합니다.
+    단, 현재 선택된 IP가 종영작 리스트에 있다면 편의상 열어둡니다.
     """
     
-    # 1. IP 리스트 분리 (순서 유지)
+    # 1. IP 리스트 분리
     on_air_list = [ip for ip, status in ip_status_map.items() if status == "방영중"]
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
     
     all_ips = list(ip_status_map.keys())
     current_selected_ip = st.session_state.get("selected_ip", None)
 
-    # 2. 데이터가 아예 없는 경우 처리
+    # 2. 데이터가 없는 경우 처리
     if not all_ips:
         st.sidebar.warning("'방영중' 탭에 IP 데이터가 없습니다.")
         st.session_state.selected_ip = None
-        # (새로고침 버튼 렌더링 로직은 하단 공통 사용)
     else:
-        # 선택 값 보정 (현재 선택된 IP가 유효하지 않으면 첫 번째 IP 선택)
+        # 선택 값 보정
         if current_selected_ip is None or current_selected_ip not in all_ips:
-            # 방영중 리스트가 있으면 그 중 첫번째, 없으면 종영 리스트 첫번째
             fallback_ip = on_air_list[0] if on_air_list else ended_list[0]
             st.session_state.selected_ip = fallback_ip
             current_selected_ip = fallback_ip
@@ -775,7 +774,7 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     # 4. 섹션별 렌더링
     st.sidebar.markdown("---")
     
-    # [섹션 1] 방영중
+    # [섹션 1] 방영중 (항상 노출)
     st.sidebar.markdown("##### 🛑 방영중")
     if on_air_list:
         for ip in on_air_list:
@@ -783,12 +782,16 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     else:
         st.sidebar.caption("방영중인 IP가 없습니다.")
 
-    # [섹션 2] 종영 (데이터가 있을 때만 표시)
+    # [섹션 2] 종영 (접이식)
     if ended_list:
-        st.sidebar.markdown("---") # 구분선 추가
-        st.sidebar.markdown("##### 🏁 종영")
-        for ip in ended_list:
-            _render_nav_button(ip)
+        # st.sidebar.markdown("---") # expander 자체에 경계선이 있으므로 구분선은 취향껏 제거/유지
+        
+        # [로직] 기본은 닫힘(False)이나, 현재 보고 있는 IP가 '종영' 목록에 있으면 열어둠(True)
+        is_ended_section_active = (current_selected_ip in ended_list)
+        
+        with st.sidebar.expander("🏁 종영 (Click)", expanded=is_ended_section_active):
+            for ip in ended_list:
+                _render_nav_button(ip)
 
     # === 최하단: 데이터 새로고침 버튼 ===
     st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
