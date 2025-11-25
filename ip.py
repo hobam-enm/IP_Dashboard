@@ -565,39 +565,51 @@ def get_tab_gids_from_sheet(edit_url: str) -> Dict[str, int]:
         st.error(f"C열의 시트({edit_url}) GID 로드 중 오류: {e}")
         return {}
 
-# ===== 3.1c. [수정] '방영중' 탭 (A,B,C,D열) 처리 =====
+# ===== 3.1c. [수정] '방영중' 탭 (A,B,C,D,E열) 처리 =====
 @st.cache_data(ttl=600)
-def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
+def load_processed_on_air_data() -> tuple[Dict[str, List[Dict[str, str]]], Dict[str, str]]:
     """
-    [수정] '방영중' 탭(A,B,C,D열)을 읽어 최종 임베딩 URL 맵을 생성합니다.
-    1. C열 URL로 GID 맵 가져오기 (get_tab_gids_from_sheet)
-    2. D열 URL에 B열 탭의 GID를 조합하여 최종 URL 생성
+    [수정] '방영중' 탭(A:E열)을 읽어 최종 임베딩 URL 맵과 IP 상태 맵을 생성합니다.
+    - A: IP명, B: 탭명, C: Edit URL, D: Publish URL, E: 상태(방영중/종영)
     """
     worksheet_name = "방영중"
     
     client = get_gspread_client()
     if client is None:
-        return {}
+        return {}, {}
         
     try:
         sheet_id = st.secrets["SHEET_ID"]
         spreadsheet = client.open_by_key(sheet_id)
         worksheet = spreadsheet.worksheet(worksheet_name)
         
-        # 'A2:D' 범위의 모든 값을 가져옵니다 (헤더 제외).
-        values = worksheet.get_values('A2:D') 
+        # [수정] 'A2:E' 범위로 확장하여 상태값(E열)까지 가져옵니다.
+        values = worksheet.get_values('A2:E') 
         
-        # 1. A,B,C,D열 데이터를 IP별로 그룹화
+        # 1. A~E열 데이터를 IP별로 그룹화
         config_map = {}
+        ip_status_map = {} # [신규] IP별 상태 저장 (순서 보장형 딕셔너리 활용)
+
         for row in values:
-            if row and len(row) > 3 and row[0].strip() and row[1].strip() and row[2].strip() and row[3].strip():
-                ip, tab_name, edit_url, pub_url = [s.strip() for s in row]
+            # 기본 A~D열이 있는지 확인
+            if row and len(row) >= 4 and row[0].strip():
+                ip = row[0].strip()
+                tab_name = row[1].strip()
+                edit_url = row[2].strip()
+                pub_url = row[3].strip()
                 
+                # [신규] E열 상태값 확인 (없으면 기본값 '방영중')
+                status = row[4].strip() if len(row) > 4 and row[4].strip() else "방영중"
+                
+                # IP 상태 맵에 저장 (최초 1회만 저장하여 시트 순서 유지)
+                if ip not in ip_status_map:
+                    ip_status_map[ip] = status
+
                 if ip not in config_map:
                     config_map[ip] = {
-                        "edit_url": edit_url, # C열 (GID 찾기용)
-                        "publish_url_base": pub_url.split('?')[0], # D열 (임베딩용, ?gid= 전까지)
-                        "tabs_to_process": [] # B열 (탭 이름 목록)
+                        "edit_url": edit_url, 
+                        "publish_url_base": pub_url.split('?')[0],
+                        "tabs_to_process": [] 
                     }
                 config_map[ip]["tabs_to_process"].append(tab_name)
 
@@ -606,22 +618,16 @@ def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
         for ip, config in config_map.items():
             final_data_structure[ip] = []
             
-            # C열 URL로 API 호출하여 GID 맵 가져오기
             gid_map = get_tab_gids_from_sheet(config["edit_url"]) 
             
-            if not gid_map: # API 호출 실패 시 (권한 오류 등)
+            if not gid_map:
                 st.warning(f"'{ip}'의 GID를 C열 시트에서 가져오지 못했습니다. (권한 확인 필요)")
                 continue 
 
-            # B열의 탭 이름을 GID로 변환하고 D열 URL과 조합
             for tab_name in config["tabs_to_process"]:
                 gid = gid_map.get(tab_name.strip())
-                
                 if gid is not None:
-                    # D열 URL 베이스 + 찾은 GID
                     final_url = f"{config['publish_url_base']}?gid={gid}&single=true"
-                    
-                    # '사전 반응' 탭 우선 정렬
                     if "사전 반응" in tab_name:
                          final_data_structure[ip].insert(0, {"title": tab_name, "url": final_url})
                     else:
@@ -629,14 +635,14 @@ def load_processed_on_air_data() -> Dict[str, List[Dict[str, str]]]:
                 else:
                     st.warning(f"'{ip}'의 시트(C열)에서 '{tab_name}'(B열) 탭을 찾을 수 없습니다.")
 
-        return final_data_structure
+        return final_data_structure, ip_status_map
 
     except gspread.exceptions.WorksheetNotFound:
         st.sidebar.error(f"'{worksheet_name}' 탭을 찾을 수 없습니다.")
-        return {}
+        return {}, {}
     except Exception as e:
-        st.sidebar.error(f"'방영중' 탭(A:D열) 로드 오류: {e}")
-        return {}
+        st.sidebar.error(f"'방영중' 탭(A:E열) 로드 오류: {e}")
+        return {}, {}
 
 # ===== 3.2. UI / 포맷팅 헬퍼 함수 =====
 
@@ -721,46 +727,37 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 
 #region [ 4. 사이드바 - IP 네비게이션 ]
 # =====================================================
-def render_sidebar_navigation(on_air_ips: List[str]):
+def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     """
-    '방영중' 탭(A열)에서 불러온 고유 IP 목록으로 네비게이션 버튼을 렌더링합니다.
-    클릭 시 session_state와 query_params를 동기화 후 rerun합니다.
-    또한 사이드바 최하단에 '데이터 새로고침' 버튼을 제공합니다.
+    [수정] E열 상태값에 따라 '방영중'과 '종영' 섹션을 나누어 렌더링합니다.
     """
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("#####  🛑방영중")
-
+    
+    # 1. IP 리스트 분리 (순서 유지)
+    on_air_list = [ip for ip, status in ip_status_map.items() if status == "방영중"]
+    ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
+    
+    all_ips = list(ip_status_map.keys())
     current_selected_ip = st.session_state.get("selected_ip", None)
 
-    if not on_air_ips:
-        st.sidebar.warning("'방영중' 탭(A열)에 IP가 없습니다.")
+    # 2. 데이터가 아예 없는 경우 처리
+    if not all_ips:
+        st.sidebar.warning("'방영중' 탭에 IP 데이터가 없습니다.")
         st.session_state.selected_ip = None
+        # (새로고침 버튼 렌더링 로직은 하단 공통 사용)
+    else:
+        # 선택 값 보정 (현재 선택된 IP가 유효하지 않으면 첫 번째 IP 선택)
+        if current_selected_ip is None or current_selected_ip not in all_ips:
+            # 방영중 리스트가 있으면 그 중 첫번째, 없으면 종영 리스트 첫번째
+            fallback_ip = on_air_list[0] if on_air_list else ended_list[0]
+            st.session_state.selected_ip = fallback_ip
+            current_selected_ip = fallback_ip
 
-        # === 최하단: 데이터 새로고침 버튼 (IP 리스트가 없어도 항상 표시) ===
-        st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
-        st.sidebar.divider()
-        if st.sidebar.button("🔄 데이터 새로고침", use_container_width=True, key="btn_refresh_bottom"):
-            # 캐시 강제 무효화 후 즉시 rerun
-            try: st.cache_data.clear()
-            except Exception: pass
-            try: st.cache_resource.clear()
-            except Exception: pass
-            st.session_state["__last_refresh_ts__"] = int(time.time())
-            _rerun()
-        st.sidebar.markdown('</div>', unsafe_allow_html=True)
-        return
-
-    # 선택 값 보정
-    if current_selected_ip is None or current_selected_ip not in on_air_ips:
-        st.session_state.selected_ip = on_air_ips[0]
-        current_selected_ip = on_air_ips[0]
-
-    # IP 네비게이션 버튼들
-    for ip_name in on_air_ips:
-        is_active = (current_selected_ip == ip_name)
+    # 3. 내부 렌더링 헬퍼 함수
+    def _render_nav_button(ip_name):
+        is_active = (st.session_state.get("selected_ip") == ip_name)
         wrapper_cls = "nav-active" if is_active else "nav-inactive"
         st.sidebar.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
-
+        
         clicked = st.sidebar.button(
             ip_name,
             key=f"navbtn__{ip_name}",
@@ -768,23 +765,35 @@ def render_sidebar_navigation(on_air_ips: List[str]):
             type=("primary" if is_active else "secondary")
         )
         st.sidebar.markdown('</div>', unsafe_allow_html=True)
-
+        
         if clicked and not is_active:
-            # 세션 상태 갱신
             st.session_state.selected_ip = ip_name
-            # 안전한 URL 파라미터 업데이트
-            try:
-                st.query_params.update(ip=ip_name)
-            except AttributeError:
-                st.experimental_set_query_params(ip=ip_name)
-            # 즉시 리렌더
+            try: st.query_params.update(ip=ip_name)
+            except AttributeError: st.experimental_set_query_params(ip=ip_name)
             _rerun()
+
+    # 4. 섹션별 렌더링
+    st.sidebar.markdown("---")
+    
+    # [섹션 1] 방영중
+    st.sidebar.markdown("##### 🛑 방영중")
+    if on_air_list:
+        for ip in on_air_list:
+            _render_nav_button(ip)
+    else:
+        st.sidebar.caption("방영중인 IP가 없습니다.")
+
+    # [섹션 2] 종영 (데이터가 있을 때만 표시)
+    if ended_list:
+        st.sidebar.markdown("---") # 구분선 추가
+        st.sidebar.markdown("##### 🏁 종영")
+        for ip in ended_list:
+            _render_nav_button(ip)
 
     # === 최하단: 데이터 새로고침 버튼 ===
     st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
     st.sidebar.divider()
-    if st.sidebar.button("🔄 데이터 새로고침", use_container_width=True, key="btn_refresh_bottom_ok"):
-        # 캐시 강제 무효화 후 즉시 rerun
+    if st.sidebar.button("🔄 데이터 새로고침", use_container_width=True, key="btn_refresh_bottom"):
         try: st.cache_data.clear()
         except Exception: pass
         try: st.cache_resource.clear()
@@ -792,7 +801,6 @@ def render_sidebar_navigation(on_air_ips: List[str]):
         st.session_state["__last_refresh_ts__"] = int(time.time())
         _rerun()
 
-    # (선택) 마지막 새로고침 시각 간단 표기
     ts = st.session_state.get("__last_refresh_ts__")
     if ts:
         st.sidebar.caption(f"마지막 갱신: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))}")
@@ -1759,20 +1767,21 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 #region [ 8. 메인 실행 ]
 # =====================================================
-# [수정] URL 파라미터와 세션 상태를 동기화하는 로직으로 변경
+# [수정] URL 파라미터와 세션 상태를 동기화하고, 상태값(E열)을 반영하도록 수정
 
 # --- 1. 세션 스테이트 초기화 ---
 if "selected_ip" not in st.session_state:
-    st.session_state.selected_ip = None # 사이드바에서 선택한 IP
+    st.session_state.selected_ip = None 
 
 # --- 2. 사이드바 타이틀 렌더링 ---
 # (스크립트 상단 Region 1-1 에서 자동으로 실행됨)
 
-# --- 3. '방영중' 데이터 로드 (A, B, C, D열 처리) ---
-on_air_data = load_processed_on_air_data() # [ 3. 공통 함수 ]
-on_air_ips = list(on_air_data.keys())
+# --- 3. '방영중' 데이터 로드 (A~E열 처리) ---
+# [수정] 반환값이 (데이터맵, 상태맵) 튜플로 변경됨
+on_air_data, ip_status_map = load_processed_on_air_data() 
+on_air_ips = list(ip_status_map.keys()) # 전체 IP 목록
 
-# --- [신규] 4. 초기 로드 시 URL 파라미터 읽기 ---
+# --- 4. 초기 로드 시 URL 파라미터 읽기 ---
 try:
     selected_ip_from_url = st.query_params.get("ip", [None])[0]
 except AttributeError:
@@ -1783,13 +1792,12 @@ if st.session_state.selected_ip is None and selected_ip_from_url and selected_ip
     st.session_state.selected_ip = selected_ip_from_url
 
 # --- 5. 사이드바 네비게이션 렌더링 ---
-# (이 함수는 st.session_state.selected_ip를 읽고, 없으면 기본값(첫번째 IP)을 설정함)
-render_sidebar_navigation(on_air_ips) # [ 4. 사이드바 ... ] 함수 호출
+# [수정] 상태 맵(ip_status_map)을 전달하여 섹션 구분 렌더링
+render_sidebar_navigation(ip_status_map) 
 
 # --- 6. 메인 페이지 렌더링 ---
 current_selected_ip = st.session_state.get("selected_ip", None)
 
-# [신규] 현재 세션의 IP와 URL 파라미터가 다르면, 세션 기준으로 URL을 덮어씀
 if current_selected_ip and selected_ip_from_url != current_selected_ip:
      try:
         st.query_params["ip"] = current_selected_ip
@@ -1797,11 +1805,12 @@ if current_selected_ip and selected_ip_from_url != current_selected_ip:
         st.experimental_set_query_params(ip=current_selected_ip)
 
 if current_selected_ip:
-    # 선택된 IP가 있으면 해당 IP의 상세 페이지를 렌더링
-    render_ip_detail(current_selected_ip, on_air_data) # [ 7. 페이지 2 ... ] 함수 호출
+    render_ip_detail(current_selected_ip, on_air_data) 
 else:
-    # 선택된 IP가 없으면 안내 메시지 표시 (e.g. '방영중' 탭이 비어있을 경우)
     st.markdown("## 📈 IP 성과 자세히보기")
-    st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
+    if not on_air_ips:
+        st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
+    else:
+        st.info("좌측 사이드바에서 IP를 선택해주세요.")
     
 #endregion
