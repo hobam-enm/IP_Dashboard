@@ -390,37 +390,47 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]
 }
 [data-testid="stSidebar"] .stButton{ margin: 0 !important; }
 
-/* --- [추가] 종영작 리스트 페이지 카드 스타일 --- */
+/* --- [수정] 종영작 리스트 페이지 카드 스타일 (v2) --- */
 div[data-testid="stVerticalBlock"] > div.ended-card-grid button {
     background-color: #ffffff !important;
     border: 1px solid #e9e9e9 !important;
     border-radius: 12px !important;
     box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
     
-    /* [핵심] 높이 고정 및 텍스트 정렬 수정 */
-    min-height: 140px !important; 
-    height: 100% !important;
-    padding: 16px 14px !important;
+    /* [핵심] 높이 고정 (더미/내용량 무관하게 일정 유지) */
+    height: 160px !important;
+    min-height: 160px !important;
+    width: 100% !important;
+    padding: 20px 16px !important;
     
-    /* [핵심] 버튼 내 줄바꿈 허용 및 왼쪽 정렬 */
+    /* 텍스트 정렬 및 줄바꿈 처리 */
     white-space: pre-wrap !important; 
     text-align: left !important;
-    line-height: 1.6 !important;
+    line-height: 1.5 !important;
     
     transition: all .2s ease !important;
+    vertical-align: top !important; /* 상단 정렬 */
 }
+
 div[data-testid="stVerticalBlock"] > div.ended-card-grid button:hover {
     transform: translateY(-3px) !important;
     box-shadow: 0 10px 20px rgba(0,0,0,0.08) !important;
     border-color: #5c6bc0 !important;
-    color: #5c6bc0 !important;
 }
+
+/* [핵심] 버튼 내부 텍스트 기본 스타일 (지표 부분) */
 div[data-testid="stVerticalBlock"] > div.ended-card-grid button p {
-    font-size: 14px !important;
-    color: #444 !important;
+    font-size: 13px !important;
+    color: #666 !important; /* 지표는 약간 연하게 */
+    margin-bottom: 0 !important;
 }
-div[data-testid="stVerticalBlock"] > div.ended-card-grid button:hover p {
-    color: #5c6bc0 !important;
+
+/* [핵심] 첫 번째 줄 (IP명) 스타일링 - 크고 진하게 */
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button p::first-line {
+    font-size: 18px !important;
+    font-weight: 800 !important;
+    color: #111 !important; /* 제목은 진하게 */
+    line-height: 2.0 !important; /* 제목과 내용 사이 간격 확보 */
 }
 
 </style>
@@ -1784,11 +1794,12 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
 #endregion
 
-# [Region 7.5. 종영작 리스트 페이지] (수정됨)
+
+#region [7.5. 종영작 리스트 페이지]
 # =====================================================
 def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
     """
-    [수정] 종영된 IP의 요약 정보(시청률, 시작일)를 카드에 표시
+    [수정] 종영된 IP의 요약 정보를 카드에 표시 (디자인 개선)
     """
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
     
@@ -1799,15 +1810,14 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
         st.info("종영된 IP 데이터가 없습니다.")
         return
 
-    # 1. 데이터 로드 및 계산 준비
+    # 1. 데이터 로드
     df = load_data()
     
     # 2. 카드 그리드 컨테이너 시작
     st.markdown('<div class="ended-card-grid">', unsafe_allow_html=True)
     
-    # 3. 4열 그리드로 배치 (데이터 개수에 맞춰 행 생성)
+    # 3. 4열 그리드로 배치
     cols_per_row = 4
-    # IP 리스트를 4개씩 끊어서 처리 (빈 카드 방지)
     for i in range(0, len(ended_list), cols_per_row):
         row_ips = ended_list[i : i + cols_per_row]
         cols = st.columns(cols_per_row)
@@ -1815,14 +1825,13 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
         for idx, ip_name in enumerate(row_ips):
             with cols[idx]:
                 # --- 데이터 계산 ---
-                # 해당 IP 데이터만 필터링
                 sub = df[df["IP"] == ip_name]
                 
-                # 시청률 (전체 회차 평균)
+                # 시청률 (값이 없으면 -)
                 val_T = mean_of_ip_episode_mean(sub, "T시청률")
                 val_H = mean_of_ip_episode_mean(sub, "H시청률")
                 
-                # 방영 시작일 (가장 빠른 날짜)
+                # 방영 시작일
                 start_date_str = "-"
                 if "방영시작일" in sub.columns:
                     dates = pd.to_datetime(sub["방영시작일"], errors="coerce").dropna()
@@ -1833,14 +1842,14 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
                     if not dates.empty:
                         start_date_str = dates.min().strftime("%Y-%m-%d")
 
-                # 포맷팅 (값이 없으면 - 처리)
                 fmt_T = f"{val_T:.2f}%" if val_T is not None else "-"
                 fmt_H = f"{val_H:.2f}%" if val_H is not None else "-"
                 
-                # --- 버튼 텍스트 구성 (HTML 태그 대신 줄바꿈/특수기호 활용) ---
-                # 주의: st.button 내부에는 HTML이 안 먹히므로 텍스트로 레이아웃을 잡습니다.
+                # --- 버튼 텍스트 구성 (v2) ---
+                # 1. 첫 줄: IP명 (CSS ::first-line 적용 대상)
+                # 2. 이후: 지표들 (줄바꿈 \n 으로 구분)
                 label_text = (
-                    f"📺 {ip_name}\n\n"
+                    f"{ip_name}\n"  # 아이콘 제거, IP명만 출력
                     f"🎯 타깃 : {fmt_T}\n"
                     f"🏠 가구 : {fmt_H}\n"
                     f"📅 시작 : {start_date_str}"
@@ -1851,8 +1860,7 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
                     st.session_state.selected_ip = ip_name
                     _rerun()
         
-        # 행 간 간격 (필요시)
-        st.write("") 
+        st.write("") # 행 간격
 
     st.markdown('</div>', unsafe_allow_html=True)
 #endregion
