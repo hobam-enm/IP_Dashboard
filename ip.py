@@ -728,29 +728,54 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 # =====================================================
 def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     """
-    [수정] CSS로 인해 expander 테두리가 안 보이는 문제를 해결하기 위해
-    강제 구분선(divider)을 추가하여 시각적으로 확실히 분리합니다.
+    [수정] CSS 충돌로 인해 사라진 Expander 제목을 강제로 표시하는 스타일을 추가했습니다.
     """
     
-    # 1. IP 리스트 분리
+    # 1. [CSS Fix] 사이드바 Expander 스타일 강제 복구
+    st.markdown("""
+    <style>
+    /* 사이드바 내 Expander(details) 텍스트 강제 색상 지정 */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] details summary {
+        color: #31333F !important;  /* 진한 회색 텍스트 */
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        padding-left: 0px !important; /* 왼쪽 여백 조정 */
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"] details summary:hover {
+        color: #000000 !important; /* 호버 시 검은색 */
+        cursor: pointer;
+    }
+    /* Expander 내부 화살표 아이콘 색상 */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] details summary svg {
+        fill: #31333F !important;
+    }
+    /* Expander 테두리 제거 (깔끔하게) */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] {
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 2. IP 리스트 분리
     on_air_list = [ip for ip, status in ip_status_map.items() if status == "방영중"]
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
     
     all_ips = list(ip_status_map.keys())
     current_selected_ip = st.session_state.get("selected_ip", None)
 
-    # 2. 데이터 유효성 체크
+    # 3. 데이터 유효성 체크
     if not all_ips:
         st.sidebar.warning("'방영중' 탭에 IP 데이터가 없습니다.")
         st.session_state.selected_ip = None
     else:
-        # 선택 값 보정
         if current_selected_ip is None or current_selected_ip not in all_ips:
             fallback_ip = on_air_list[0] if on_air_list else ended_list[0]
             st.session_state.selected_ip = fallback_ip
             current_selected_ip = fallback_ip
 
-    # 3. 내부 렌더링 헬퍼 함수
+    # 4. 내부 렌더링 헬퍼 함수
     def _render_nav_button(ip_name):
         is_active = (st.session_state.get("selected_ip") == ip_name)
         wrapper_cls = "nav-active" if is_active else "nav-inactive"
@@ -770,7 +795,7 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
             except AttributeError: st.experimental_set_query_params(ip=ip_name)
             _rerun()
 
-    # 4. 섹션별 렌더링
+    # 5. 섹션별 렌더링
     st.sidebar.markdown("---")
     
     # [섹션 1] 방영중
@@ -781,15 +806,14 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     else:
         st.sidebar.caption("방영중인 IP가 없습니다.")
 
-    # [섹션 2] 종영 (구분선 추가)
+    # [섹션 2] 종영
     if ended_list:
-        # [수정] 여기에 구분선을 확실하게 넣어줍니다.
         st.sidebar.markdown("---") 
         
-        # 현재 선택된 IP가 종영작이면 열어두기
+        # 현재 선택된 IP가 종영작이면 자동으로 열어두기
         is_ended_section_active = (current_selected_ip in ended_list)
         
-        # Expander 제목에 아이콘을 넣어 구분을 돕습니다.
+        # [수정] 아이콘과 텍스트가 이제 보일 것입니다.
         with st.sidebar.expander("🏁 종영작 보기 (Click)", expanded=is_ended_section_active):
             for ip in ended_list:
                 _render_nav_button(ip)
