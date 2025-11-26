@@ -1796,6 +1796,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 
 #region [7.5. 종영작 리스트 페이지]
+# [Region 7.5. 종영작 리스트 페이지] (v2 수정됨)
 # =====================================================
 def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
     """
