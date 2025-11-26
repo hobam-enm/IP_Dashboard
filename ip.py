@@ -390,29 +390,37 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]
 }
 [data-testid="stSidebar"] .stButton{ margin: 0 !important; }
 
-# [Region 2 내부 style 태그 안쪽 맨 아래에 추가]
-
 /* --- [추가] 종영작 리스트 페이지 카드 스타일 --- */
-/* 종영작 버튼을 KPI 카드처럼 보이게 커스텀 */
 div[data-testid="stVerticalBlock"] > div.ended-card-grid button {
     background-color: #ffffff !important;
     border: 1px solid #e9e9e9 !important;
-    border-radius: 10px !important;
+    border-radius: 12px !important;
     box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
-    height: 120px !important; /* 카드 높이 */
-    padding: 10px !important;
-    transition: transform .18s ease, box-shadow .18s ease !important;
+    
+    /* [핵심] 높이 고정 및 텍스트 정렬 수정 */
+    min-height: 140px !important; 
+    height: 100% !important;
+    padding: 16px 14px !important;
+    
+    /* [핵심] 버튼 내 줄바꿈 허용 및 왼쪽 정렬 */
+    white-space: pre-wrap !important; 
+    text-align: left !important;
+    line-height: 1.6 !important;
+    
+    transition: all .2s ease !important;
 }
 div[data-testid="stVerticalBlock"] > div.ended-card-grid button:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 14px 36px rgba(16,24,40,.14), 0 4px 12px rgba(16,24,40,.08) !important;
-    border-color: #d1d5db !important;
-    color: #5c6bc0 !important; /* 호버 시 텍스트 색상 포인트 */
+    transform: translateY(-3px) !important;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.08) !important;
+    border-color: #5c6bc0 !important;
+    color: #5c6bc0 !important;
 }
 div[data-testid="stVerticalBlock"] > div.ended-card-grid button p {
-    font-size: 18px !important;
-    font-weight: 700 !important;
-    color: #333 !important;
+    font-size: 14px !important;
+    color: #444 !important;
+}
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button:hover p {
+    color: #5c6bc0 !important;
 }
 
 </style>
@@ -1776,34 +1784,78 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
 #endregion
 
-# [Region 7.5. 종영작 리스트 페이지] (신규 추가)
+# [Region 7.5. 종영작 리스트 페이지] (수정됨)
 # =====================================================
 def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
     """
-    [신규] 종영된 IP들을 KPI 카드 형태의 버튼 그리드로 보여주는 페이지
+    [수정] 종영된 IP의 요약 정보(시청률, 시작일)를 카드에 표시
     """
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
     
-    st.markdown(f"<div class='page-title'>🏁 종영작 리스트 ({len(ended_list)})</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>🏁 종영작 모아보기 ({len(ended_list)})</div>", unsafe_allow_html=True)
     st.markdown("---")
 
     if not ended_list:
         st.info("종영된 IP 데이터가 없습니다.")
         return
 
-    # CSS 적용을 위한 컨테이너 클래스 래핑
+    # 1. 데이터 로드 및 계산 준비
+    df = load_data()
+    
+    # 2. 카드 그리드 컨테이너 시작
     st.markdown('<div class="ended-card-grid">', unsafe_allow_html=True)
     
-    # 4열 그리드로 배치
-    cols = st.columns(4)
-    for idx, ip_name in enumerate(ended_list):
-        with cols[idx % 4]:
-            # 버튼 클릭 시 해당 IP 상세페이지로 이동
-            if st.button(f"{ip_name}", key=f"card_btn_{ip_name}", use_container_width=True):
-                st.session_state.selected_ip = ip_name
-                _rerun()
+    # 3. 4열 그리드로 배치 (데이터 개수에 맞춰 행 생성)
+    cols_per_row = 4
+    # IP 리스트를 4개씩 끊어서 처리 (빈 카드 방지)
+    for i in range(0, len(ended_list), cols_per_row):
+        row_ips = ended_list[i : i + cols_per_row]
+        cols = st.columns(cols_per_row)
+        
+        for idx, ip_name in enumerate(row_ips):
+            with cols[idx]:
+                # --- 데이터 계산 ---
+                # 해당 IP 데이터만 필터링
+                sub = df[df["IP"] == ip_name]
                 
+                # 시청률 (전체 회차 평균)
+                val_T = mean_of_ip_episode_mean(sub, "T시청률")
+                val_H = mean_of_ip_episode_mean(sub, "H시청률")
+                
+                # 방영 시작일 (가장 빠른 날짜)
+                start_date_str = "-"
+                if "방영시작일" in sub.columns:
+                    dates = pd.to_datetime(sub["방영시작일"], errors="coerce").dropna()
+                    if not dates.empty:
+                        start_date_str = dates.min().strftime("%Y-%m-%d")
+                elif "주차시작일" in sub.columns:
+                    dates = pd.to_datetime(sub["주차시작일"], errors="coerce").dropna()
+                    if not dates.empty:
+                        start_date_str = dates.min().strftime("%Y-%m-%d")
+
+                # 포맷팅 (값이 없으면 - 처리)
+                fmt_T = f"{val_T:.2f}%" if val_T is not None else "-"
+                fmt_H = f"{val_H:.2f}%" if val_H is not None else "-"
+                
+                # --- 버튼 텍스트 구성 (HTML 태그 대신 줄바꿈/특수기호 활용) ---
+                # 주의: st.button 내부에는 HTML이 안 먹히므로 텍스트로 레이아웃을 잡습니다.
+                label_text = (
+                    f"📺 {ip_name}\n\n"
+                    f"🎯 타깃 : {fmt_T}\n"
+                    f"🏠 가구 : {fmt_H}\n"
+                    f"📅 시작 : {start_date_str}"
+                )
+                
+                # 버튼 클릭 시 이동
+                if st.button(label_text, key=f"end_card_{ip_name}", use_container_width=True):
+                    st.session_state.selected_ip = ip_name
+                    _rerun()
+        
+        # 행 간 간격 (필요시)
+        st.write("") 
+
     st.markdown('</div>', unsafe_allow_html=True)
+#endregion
 
 # [Region 8. 메인 실행]
 # =====================================================
