@@ -64,331 +64,200 @@ with st.sidebar:
 
 #region [ 2. 공통 스타일 통합 ]
 # =====================================================
-# (이 영역은 원본과 동일하게 유지됩니다)
 st.markdown("""
 <style>
 
  /* -------------------------------------------------------------------
-   0. [추가] 스트림릿 기본 헤더(Toolbar) 숨기기
+   0. 기본 레이아웃 및 헤더 숨김
    ------------------------------------------------------------------- */
-header[data-testid="stHeader"] {
-    display: none !important; /* 상단 헤더 영역 전체 숨김 */
-}
-div[data-testid="stDecoration"] {
-    display: none !important; /* 상단 컬러 데코레이션 바 숨김 */
+header[data-testid="stHeader"] { display: none !important; }
+div[data-testid="stDecoration"] { display: none !important; }
+
+div[data-testid="stAppViewBlock"] { padding-top: 1rem !important; }
+.block-container { padding-top: 0rem !important; }
+
+/* 앱 전체 배경색 */
+[data-testid="stAppViewContainer"] {
+    background-color: #f8f9fa; 
 }
 
-/* --- [추가] 메인 컨텐츠 상단 패딩 줄이기 (가장 중요) --- */
-div[data-testid="stAppViewBlock"] {
-    padding-top: 1rem !important; /* 메인 블록 상단 여백을 줄임 */
-}
-.block-container {
-    padding-top: 0rem !important; /* 위젯 컨테이너의 상단 패딩을 제거 */
-}
-            
-/* --- [기본] Hover foundation & Title/Box exceptions --- */
-div[data-testid="stVerticalBlockBorderWrapper"]{
-    transition: transform .18s ease, box-shadow .18s ease !important;
-    will-change: transform, box-shadow;
-    overflow: visible !important;
-    position: relative;
-    pointer-events: auto;
-}
-section[data-testid="stVerticalBlock"] h1,
-section[data-testid="stVerticalBlock"] h2,
-section[data-testid="stVerticalBlock"] h3 {
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    line-height: 1.25;
-}
-section[data-testid="stVerticalBlock"] h1 { font-size: clamp(28px, 2.8vw, 38px); }
-section[data-testid="stVerticalBlock"] h2 { font-size: clamp(24px, 2.4vw, 34px); }
-section[data-testid="stVerticalBlock"] h3 { font-size: clamp(22px, 2.0vw, 30px); }
 
-.page-title {
-    font-size: clamp(26px, 2.4vw, 34px);
-    font-weight: 800;
-    line-height: 1.25;
-    letter-spacing: -0.02em;
-    margin: 6px 0 14px 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
+ /* -------------------------------------------------------------------
+   1. 사이드바 (New Design)
+   ------------------------------------------------------------------- */
+section[data-testid="stSidebar"] {
+    background-color: #ffffff; /* 사이드바 배경 흰색 */
+    border-right: 1px solid #e5e7eb; /* 우측 연한 경계선 */
 }
 
-/* Remove box background/border/shadow for KPI, titles, filters, mode switchers */
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-card),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.page-title),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(h1),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(h2),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(h3),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(div[data-testid="stSelectbox"]),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(div[data-testid="stMultiSelect"]),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(div[data-testid="stSlider"]),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(div[data-testid="stRadio"]),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.filter-group),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.mode-switch) {
+/* 사이드바 내부 패딩 조정 */
+section[data-testid="stSidebar"] .block-container {
+    padding-top: 2rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+
+/* 사이드바 섹션 헤더 (예: 🔴 LIVE 방영중) */
+.sidebar-section-header {
+    font-size: 12px;
+    font-weight: 700;
+    color: #9ca3af; /* 연한 회색 텍스트 */
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 24px;
+    margin-bottom: 8px;
+    padding-left: 4px;
+}
+
+/* [핵심] 사이드바 버튼 -> 네비게이션 링크 스타일로 변형 */
+div[data-testid="stSidebar"] button {
+    background-color: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+    color: #4b5563 !important; /* 기본 글자색 (진회색) */
+    text-align: left !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    padding: 0.5rem 0.75rem !important;
+    border-radius: 6px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    transition: all 0.15s ease-in-out;
+    width: 100%;
+}
+
+/* 버튼 호버 효과 */
+div[data-testid="stSidebar"] button:hover {
+    background-color: #f3f4f6 !important; /* 아주 연한 회색 배경 */
+    color: #111827 !important; /* 검은색 글자 */
+}
+
+/* [Active] 선택된 버튼 (Primary) 스타일 */
+div[data-testid="stSidebar"] button[kind="primary"] {
+    background-color: #eff6ff !important; /* 연한 파란색 배경 */
+    color: #2563eb !important; /* 파란색 글자 */
+    border: 1px solid #bfdbfe !important;
+    font-weight: 600 !important;
+}
+
+/* [Custom] 종영작 토글 버튼 스타일 */
+.ended-toggle-btn button {
+    background-color: #ffffff !important;
+    border: 1px dashed #d1d5db !important; /* 점선 테두리 */
+    color: #6b7280 !important;
+    justify-content: center !important; /* 가운데 정렬 */
+    font-size: 13px !important;
+    margin-top: 10px !important;
+}
+.ended-toggle-btn button:hover {
+    border-color: #9ca3af !important;
+    background-color: #f9fafb !important;
+}
+
+/* 사이드바 하단 고정 영역 */
+.sb-bottom {
+    margin-top: auto;
+    padding-bottom: 20px;
+}
+
+
+ /* -------------------------------------------------------------------
+   2. 메인 컨텐츠 카드 (Card Styling)
+   ------------------------------------------------------------------- */
+/* 메인 영역의 컨테이너(VerticalBlock)를 '카드'처럼 보이게 설정 */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background-color: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+/* 사이드바 내부에서는 카드 스타일 제거 */
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
-    margin-bottom: 0.5rem !important;
-}
-
-/* --- [기본] Background & Hover (Legacy) --- */
-[data-testid="stAppViewContainer"] {
-    background: radial-gradient(1200px 500px at 10% -10%, rgba(99, 102, 241, 0.05), transparent 40%),
-                radial-gradient(1200px 500px at 90% -20%, rgba(236, 72, 153, 0.05), transparent 40%),
-                #f7f8fb;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:hover{
-    transform: translateY(-2px);
-    box-shadow: 0 14px 36px rgba(16, 24, 40, 0.14), 0 4px 12px rgba(16, 24, 40, 0.08);
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:hover{
-    transform: translate3d(0, -2px, 0) !important;
-    box-shadow: 0 14px 36px rgba(16, 24, 40, 0.14), 0 4px 12px rgba(16, 24, 40, 0.08) !important;
-    z-index: 2;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:hover{
-  transform: none !important;
-  box-shadow: inherit !important;
-  z-index: auto !important;
-}
-section[data-testid="stSidebar"] .kpi-card:hover,
-section[data-testid="stSidebar"] .block-card:hover,
-section[data-testid="stSidebar"] .stPlotlyChart:hover,
-section[data-testid="stSidebar"] .ag-theme-streamlit .ag-root-wrapper:hover{
-  transform: none !important;
-  box-shadow: inherit !important;
-}
-.kpi-card, .block-card, .stPlotlyChart, .ag-theme-streamlit .ag-root-wrapper{
-  transition: transform .18s ease, box-shadow .18s ease;
-  will-change: transform, box-shadow;
-  backface-visibility: hidden;
-  -webkit-font-smoothing: antialiased;
-}
-.kpi-card:hover, .block-card:hover, .stPlotlyChart:hover, .ag-theme-streamlit .ag-root-wrapper:hover{
-  transform: translateY(-2px);
-  box-shadow: 0 14px 36px rgba(16,24,40,.14), 0 4px 12px rgba(16,24,40,.08);
 }
 
 
-/* --- [기본] 지표기준안내 (gd-guideline) --- */
-.gd-guideline { font-size: 13px; line-height: 1.35; }
-.gd-guideline ul { margin: .2rem 0 .6rem 1.1rem; padding: 0; }
-.gd-guideline li { margin: .15rem 0; }
-.gd-guideline b, .gd-guideline strong { font-weight: 600; }
-.gd-guideline code{
-  background: rgba(16,185,129,.10);
-  color: #16a34a;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: .92em;
-}
-
-/* --- [기본] 앱 배경 / 카드 스타일 --- */
-[data-testid="stAppViewContainer"] {
-    background-color: #f8f9fa; /* 매우 연한 회색 배경 */
-}
-div[data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: #ffffff;
-    border: 1px solid #e9e9e9;
-    border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.03);
-    padding: 1.25rem 1.25rem 1.5rem 1.25rem;
-    margin-bottom: 1.5rem;
-}
-
-/* --- [사이드바] 기본 스타일 + 접힘 방지 --- */
-section[data-testid="stSidebar"] {
-    background: #ffffff;
-    border-right: 1px solid #e0e0e0;
-    padding-top: 1rem;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-}
-div[data-testid="collapsedControl"] { display:none !important; }
-
-/* --- [사이드바] 그라디언트 타이틀 --- */
-.page-title-wrap{
-  display:flex; align-items:center; gap:8px; margin:4px 0 10px 0;
-}
-.page-title-emoji{ font-size:20px; line-height:1; }
-.page-title-main{
-  font-size: clamp(18px, 2.2vw, 24px);
-  font-weight: 800; letter-spacing:-0.2px; line-height:1.15;
-  background: linear-gradient(90deg,#6A5ACD 0%, #A663CC 40%, #FF7A8A 75%, #FF8A3D 100%);
-  -webkit-background-clip:text; background-clip:text; color:transparent;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-section[data-testid="stSidebar"] .page-title-wrap{justify-content:center;text-align:center;}
-section[data-testid="stSidebar"] .page-title-main{display:block;text-align:center;}
-section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
-section[data-testid="stSidebar"] .stCaption,
-section[data-testid="stSidebar"] .stMarkdown p.sidebar-contact{ text-align:center !important; }
-
-/* --- [사이드바] 네비게이션 버튼 (v2) --- */
-/* [수정] 네비게이션 관련 스타일 제거 (단독 페이지이므로 불필요) */
-/*
-section[data-testid="stSidebar"] .block-container{padding-top:0.75rem;}
-...
-.sidebar-hr { margin: 0; border-top: 1px solid #E5E7EB; }
-*/
-
-/* --- [사이드바] 내부 카드/여백 제거 (SIDEBAR CARD STRIP) --- */
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  margin-bottom: 0 !important; /* [수정] 네비게이션 버튼 간격 제거 */
-}
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-  transform: none !important;
-  box-shadow: none !important;
-}
-section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-section[data-testid="stSidebar"] .block-container, 
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  box-shadow: none !important;
-  border: none !important;
-  background: transparent !important;
-}
-
-/* --- [컴포넌트] KPI 카드 --- */
+ /* -------------------------------------------------------------------
+   3. KPI 카드 스타일
+   ------------------------------------------------------------------- */
 .kpi-card {
   background: #ffffff;
-  border: 1px solid #e9e9e9;
-  border-radius: 10px;
-  padding: 20px 15px;
+  border: 1px solid #f1f5f9;
+  border-radius: 8px;
+  padding: 16px;
   text-align: center;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
   height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 .kpi-title { 
-    font-size: 15px; 
+    font-size: 14px; 
     font-weight: 600; 
-    margin-bottom: 10px; 
-    color: #444; 
+    color: #64748b; 
+    margin-bottom: 8px; 
 }
 .kpi-value { 
-    font-size: 28px; 
-    font-weight: 700; 
-    color: #000; 
+    font-size: 26px; 
+    font-weight: 800; 
+    color: #0f172a; 
     line-height: 1.2;
 }
-.kpi-subwrap { margin-top: 10px; line-height: 1.4; }
-.kpi-sublabel { font-size: 12px; font-weight: 500; color: #555; letter-spacing: 0.1px; margin-right: 6px; }
-.kpi-substrong { font-size: 14px; font-weight: 700; color: #111; }
-.kpi-subpct { font-size: 14px; font-weight: 700; }
+.kpi-subwrap { margin-top: 8px; font-size: 12px; line-height: 1.4; }
+.kpi-sublabel { color: #94a3b8; margin-right: 4px; }
+.kpi-substrong { font-weight: 700; color: #334155; }
+.kpi-subpct { font-weight: 700; }
 
-/* --- [컴포넌트] AgGrid 공통 --- */
-.ag-theme-streamlit { font-size: 13px; }
-.ag-theme-streamlit .ag-root-wrapper { border-radius: 8px; }
-.ag-theme-streamlit .ag-row-hover { background-color: #f5f8ff !important; }
-.ag-theme-streamlit .ag-header-cell-label { justify-content: center !important; }
-.ag-theme-streamlit .centered-header .ag-header-cell-label { justify-content: center !important; }
-.ag-theme-streamlit .centered-header .ag-sort-indicator-container { margin-left: 4px; }
-.ag-theme-streamlit .bold-header .ag-header-cell-text { 
-    font-weight: 700 !important; 
-    font-size: 13px; 
-    color: #111;
+
+ /* -------------------------------------------------------------------
+   4. 타이틀 및 텍스트 스타일
+   ------------------------------------------------------------------- */
+/* 그라디언트 타이틀 (사이드바) */
+.page-title-wrap {
+  display:flex; align-items:center; justify-content:center; gap:8px; margin:10px 0 20px 0;
 }
-
-/* --- [컴포넌트] 기타 미세 조정 --- */
-.sec-title{ 
-    font-size: 20px; 
+.page-title-main {
+  font-size: 22px;
+  font-weight: 800; 
+  background: linear-gradient(90deg,#6366f1 0%, #a855f7 50%, #ec4899 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.page-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: #111827;
+    margin: 10px 0 20px 0;
+}
+.sub-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #374151;
+    margin-bottom: 10px;
+}
+.sec-title { 
+    font-size: 16px; 
     font-weight: 700; 
-    color: #111; 
-    margin: 0 0 10px 0;
-    padding-bottom: 0;
-    border-bottom: none;
+    color: #1f2937; 
+    margin-bottom: 10px; 
 }
-div[data-testid="stMultiSelect"], div[data-testid="stSelectbox"] { margin-top: -10px; }
-h3 { margin-top: -15px; margin-bottom: 10px; }
-h4 { font-weight: 700; color: #111; margin-top: 0rem; margin-bottom: 0.5rem; }
-hr { margin: 1.5rem 0; background-color: #e0e0e0; }
+hr { margin: 2rem 0; border-color: #e5e7eb; }
 
 
-/* --- [수정] HOVER FIX OVERRIDE (v2) --- */
-.stPlotlyChart:hover,
-.ag-theme-streamlit .ag-root-wrapper:hover {
-  transform: none !important;
-  box-shadow: inherit !important;
-}
-
-/* [수정] ._liftable 클래스 의존성 제거 및 중복 규칙 통합 */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  transition: transform .18s ease, box-shadow .18s ease !important;
-  will-change: transform, box-shadow;
-  backface-visibility: hidden;
-  position: relative;
-  /* emulate ._liftable (원본 주석 유지) */
-}
-
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.stPlotlyChart:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .stPlotlyChart:hover)) { /* [수정] ._liftable 제거 */
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ag-theme-streamlit .ag-root-wrapper:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .ag-theme-streamlit .ag-root-wrapper:hover)) { /* [수정] ._liftable 제거 */
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.kpi-card:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .kpi-card:hover)), /* [수정] .*_liftable 제거 */
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.block-card:hover):not(:has(div[data-testid="stVerticalBlockBorderWrapper"] .block-card:hover)) { /* [수정] .*_liftable 제거 */
-  transform: translate3d(0,-4px,0) !important;
-  box-shadow: 0 16px 40px rgba(16,24,40,.16), 0 6px 14px rgba(16,24,40,.10) !important;
-  z-index: 3 !important;
-}
-section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
-  transform: none !important;
-  box-shadow: inherit !important;
-  z-index: auto !important;
-  /* [추가] 사이드바에서는 트랜지션 효과 제거 */
-  transition: none !important; 
-}
-/* [수정] 아래의 중복 규칙들은 위의 통합 규칙으로 병합됨 */
-            
-/* ===== Sidebar compact spacing (tunable) ===== */
-/* [수정] 네비게이션이 없으므로, 원본의 사이드바 여백 조절 스타일은 대부분 불필요 */
-/* [수정] 단, 로그인 버튼/텍스트 등 최소한의 스타일은 남김 */
-[data-testid="stSidebar"]{
-  --sb-gap: 6px;
-  --sb-pad-y: 8px;
-  --sb-pad-x: 10px;
-  --label-gap: 3px;
-}
-[data-testid="stSidebar"] .block-container{
-  padding: var(--sb-pad-y) var(--sb-pad-x) !important;
-}
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{
-  gap: var(--sb-gap) !important;
-}
-[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, 
-[data-testid="stSidebar"] h4, [data-testid="stSidebar"] h5, [data-testid="stSidebar"] h6{
-  margin: 2px 0 calc(var(--label-gap)+1px) !important;
-}
-[data-testid="stSidebar"] .stMarkdown, 
-[data-testid="stSidebar"] label{
-  margin: 0 0 var(--label-gap) !important;
-  line-height: 1.18 !important;
-}
-[data-testid="stSidebar"] .stButton{ margin: 0 !important; }
+ /* -------------------------------------------------------------------
+   5. AgGrid (표) 스타일 커스텀
+   ------------------------------------------------------------------- */
+.ag-theme-streamlit { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.ag-theme-streamlit .ag-root-wrapper { border-radius: 8px; border: 1px solid #e2e8f0; }
+.ag-theme-streamlit .ag-header { background-color: #f8fafc; font-weight: 600; color: #475569; }
+.ag-theme-streamlit .ag-row { border-bottom-color: #f1f5f9; }
+.ag-theme-streamlit .ag-row-hover { background-color: #f1f5f9 !important; }
 
 </style>
 """, unsafe_allow_html=True)
@@ -724,50 +593,25 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
     return sub
 #endregion
 
+
 #region [ 4. 사이드바 - IP 네비게이션 ]
 # =====================================================
 def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     """
-    [수정] CSS 충돌로 인해 사라진 Expander 제목을 강제로 표시하는 스타일을 추가했습니다.
+    [전면 재구성] st.expander 대신 Session State를 활용한 커스텀 토글 방식을 사용하여
+    CSS 충돌 없이 '종영' 섹션을 완벽하게 제어합니다.
     """
     
-    # 1. [CSS Fix] 사이드바 Expander 스타일 강제 복구
-    st.markdown("""
-    <style>
-    /* 사이드바 내 Expander(details) 텍스트 강제 색상 지정 */
-    section[data-testid="stSidebar"] [data-testid="stExpander"] details summary {
-        color: #31333F !important;  /* 진한 회색 텍스트 */
-        font-weight: 600 !important;
-        font-size: 14px !important;
-        padding-left: 0px !important; /* 왼쪽 여백 조정 */
-    }
-    section[data-testid="stSidebar"] [data-testid="stExpander"] details summary:hover {
-        color: #000000 !important; /* 호버 시 검은색 */
-        cursor: pointer;
-    }
-    /* Expander 내부 화살표 아이콘 색상 */
-    section[data-testid="stSidebar"] [data-testid="stExpander"] details summary svg {
-        fill: #31333F !important;
-    }
-    /* Expander 테두리 제거 (깔끔하게) */
-    section[data-testid="stSidebar"] [data-testid="stExpander"] {
-        border: none !important;
-        box-shadow: none !important;
-        background: transparent !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 2. IP 리스트 분리
+    # 1. IP 리스트 분리
     on_air_list = [ip for ip, status in ip_status_map.items() if status == "방영중"]
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
     
     all_ips = list(ip_status_map.keys())
     current_selected_ip = st.session_state.get("selected_ip", None)
 
-    # 3. 데이터 유효성 체크
+    # 2. 데이터 유효성 및 기본값 선택
     if not all_ips:
-        st.sidebar.warning("'방영중' 탭에 IP 데이터가 없습니다.")
+        st.sidebar.warning("데이터가 없습니다.")
         st.session_state.selected_ip = None
     else:
         if current_selected_ip is None or current_selected_ip not in all_ips:
@@ -775,48 +619,64 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
             st.session_state.selected_ip = fallback_ip
             current_selected_ip = fallback_ip
 
-    # 4. 내부 렌더링 헬퍼 함수
-    def _render_nav_button(ip_name):
-        is_active = (st.session_state.get("selected_ip") == ip_name)
-        wrapper_cls = "nav-active" if is_active else "nav-inactive"
-        st.sidebar.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
-        
-        clicked = st.sidebar.button(
-            ip_name,
-            key=f"navbtn__{ip_name}",
-            use_container_width=True,
-            type=("primary" if is_active else "secondary")
-        )
-        st.sidebar.markdown('</div>', unsafe_allow_html=True)
-        
-        if clicked and not is_active:
-            st.session_state.selected_ip = ip_name
-            try: st.query_params.update(ip=ip_name)
-            except AttributeError: st.experimental_set_query_params(ip=ip_name)
-            _rerun()
+    # --- [로직] 종영작 섹션 열림/닫힘 상태 관리 ---
+    if "is_ended_open" not in st.session_state:
+        st.session_state.is_ended_open = False # 기본값: 닫힘
 
-    # 5. 섹션별 렌더링
-    st.sidebar.markdown("---")
+    # 만약 현재 선택된 IP가 '종영' 리스트에 있다면, 강제로 섹션을 엽니다.
+    if current_selected_ip in ended_list:
+        st.session_state.is_ended_open = True
+
+
+    # 3. 내부 렌더링 헬퍼 함수 (버튼 디자인 통일)
+    def _render_nav_button(ip_name, key_suffix=""):
+        is_active = (st.session_state.get("selected_ip") == ip_name)
+        
+        # 버튼 클릭 시 동작
+        if st.sidebar.button(
+            ip_name,
+            key=f"navbtn_{key_suffix}_{ip_name}",
+            use_container_width=True,
+            type=("primary" if is_active else "secondary") # CSS에서 primary 스타일 별도 정의됨
+        ):
+            if not is_active:
+                st.session_state.selected_ip = ip_name
+                try: st.query_params.update(ip=ip_name)
+                except AttributeError: st.experimental_set_query_params(ip=ip_name)
+                _rerun()
+
+    # 4. [UI 렌더링] 방영중 섹션
+    st.sidebar.markdown('<div class="sidebar-section-header">🔴 LIVE 방영중</div>', unsafe_allow_html=True)
     
-    # [섹션 1] 방영중
-    st.sidebar.markdown("##### 🛑 방영중")
     if on_air_list:
         for ip in on_air_list:
-            _render_nav_button(ip)
+            _render_nav_button(ip, "onair")
     else:
         st.sidebar.caption("방영중인 IP가 없습니다.")
 
-    # [섹션 2] 종영
+    st.sidebar.markdown("---") # 구분선
+
+    # 5. [UI 렌더링] 종영 섹션 (커스텀 토글)
     if ended_list:
-        st.sidebar.markdown("---") 
+        # 토글 버튼 텍스트 결정
+        toggle_icon = "▼" if st.session_state.is_ended_open else "▶"
+        toggle_text = f"{toggle_icon} 종영작 보기 ({len(ended_list)})"
         
-        # 현재 선택된 IP가 종영작이면 자동으로 열어두기
-        is_ended_section_active = (current_selected_ip in ended_list)
-        
-        # [수정] 아이콘과 텍스트가 이제 보일 것입니다.
-        with st.sidebar.expander("🏁 종영작 보기 (Click)", expanded=is_ended_section_active):
+        # 토글 버튼 (CSS 클래스 .ended-toggle-btn 적용을 위해 컨테이너 사용)
+        st.sidebar.markdown('<div class="ended-toggle-btn">', unsafe_allow_html=True)
+        if st.sidebar.button(toggle_text, use_container_width=True, key="btn_toggle_ended"):
+            # 상태 반전 (열림 <-> 닫힘)
+            st.session_state.is_ended_open = not st.session_state.is_ended_open
+            _rerun()
+        st.sidebar.markdown('</div>', unsafe_allow_html=True)
+
+        # 상태가 '열림'일 때만 리스트 렌더링
+        if st.session_state.is_ended_open:
+            st.sidebar.markdown('<div style="margin-top:5px; padding-left:5px; border-left: 2px solid #e5e7eb;">', unsafe_allow_html=True)
             for ip in ended_list:
-                _render_nav_button(ip)
+                _render_nav_button(ip, "ended")
+            st.sidebar.markdown('</div>', unsafe_allow_html=True)
+
 
     # === 최하단: 데이터 새로고침 버튼 ===
     st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
@@ -831,7 +691,7 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
 
     ts = st.session_state.get("__last_refresh_ts__")
     if ts:
-        st.sidebar.caption(f"마지막 갱신: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))}")
+        st.sidebar.caption(f"Update: {time.strftime('%m/%d %H:%M', time.localtime(ts))}")
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
 #endregion
 
