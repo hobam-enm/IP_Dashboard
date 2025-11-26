@@ -390,6 +390,31 @@ section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"]
 }
 [data-testid="stSidebar"] .stButton{ margin: 0 !important; }
 
+# [Region 2 내부 style 태그 안쪽 맨 아래에 추가]
+
+/* --- [추가] 종영작 리스트 페이지 카드 스타일 --- */
+/* 종영작 버튼을 KPI 카드처럼 보이게 커스텀 */
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button {
+    background-color: #ffffff !important;
+    border: 1px solid #e9e9e9 !important;
+    border-radius: 10px !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
+    height: 120px !important; /* 카드 높이 */
+    padding: 10px !important;
+    transition: transform .18s ease, box-shadow .18s ease !important;
+}
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 14px 36px rgba(16,24,40,.14), 0 4px 12px rgba(16,24,40,.08) !important;
+    border-color: #d1d5db !important;
+    color: #5c6bc0 !important; /* 호버 시 텍스트 색상 포인트 */
+}
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button p {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    color: #333 !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 #endregion
@@ -725,57 +750,33 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
 #endregion
 
 
-#region [ 4. 사이드바 - IP 네비게이션 ]
+# [Region 4. 사이드바 - IP 네비게이션] 수정
 # =====================================================
 def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     """
-    [수정] E열 상태값에 따라 '방영중'과 '종영' 섹션을 나누어 렌더링합니다.
+    [수정] '방영중'은 개별 버튼 노출, '종영'은 '모아보기' 버튼 하나로 통합 노출
     """
     
-    # 1. IP 리스트 분리 (순서 유지)
+    # 1. IP 리스트 분리
     on_air_list = [ip for ip, status in ip_status_map.items() if status == "방영중"]
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
     
-    all_ips = list(ip_status_map.keys())
-    current_selected_ip = st.session_state.get("selected_ip", None)
+    current_selected = st.session_state.get("selected_ip")
 
-    # 2. 데이터가 아예 없는 경우 처리
-    if not all_ips:
-        st.sidebar.warning("'방영중' 탭에 IP 데이터가 없습니다.")
-        st.session_state.selected_ip = None
-        # (새로고침 버튼 렌더링 로직은 하단 공통 사용)
-    else:
-        # 선택 값 보정 (현재 선택된 IP가 유효하지 않으면 첫 번째 IP 선택)
-        if current_selected_ip is None or current_selected_ip not in all_ips:
-            # 방영중 리스트가 있으면 그 중 첫번째, 없으면 종영 리스트 첫번째
-            fallback_ip = on_air_list[0] if on_air_list else ended_list[0]
-            st.session_state.selected_ip = fallback_ip
-            current_selected_ip = fallback_ip
-
-    # 3. 내부 렌더링 헬퍼 함수
+    # 2. 내부 렌더링 헬퍼 (방영중 IP용)
     def _render_nav_button(ip_name):
-        is_active = (st.session_state.get("selected_ip") == ip_name)
-        wrapper_cls = "nav-active" if is_active else "nav-inactive"
-        st.sidebar.markdown(f'<div class="{wrapper_cls}">', unsafe_allow_html=True)
+        is_active = (current_selected == ip_name)
+        # 방영중 버튼 스타일 (기본)
+        type_val = "primary" if is_active else "secondary"
         
-        clicked = st.sidebar.button(
-            ip_name,
-            key=f"navbtn__{ip_name}",
-            use_container_width=True,
-            type=("primary" if is_active else "secondary")
-        )
-        st.sidebar.markdown('</div>', unsafe_allow_html=True)
-        
-        if clicked and not is_active:
+        if st.sidebar.button(ip_name, key=f"navbtn__{ip_name}", use_container_width=True, type=type_val):
             st.session_state.selected_ip = ip_name
-            try: st.query_params.update(ip=ip_name)
-            except AttributeError: st.experimental_set_query_params(ip=ip_name)
             _rerun()
 
-    # 4. 섹션별 렌더링
+    # 3. 사이드바 구성
     st.sidebar.markdown("---")
     
-    # [섹션 1] 방영중
+    # [섹션 1] 🛑 방영중 (기존대로 리스트 나열)
     st.sidebar.markdown("##### 🛑 방영중")
     if on_air_list:
         for ip in on_air_list:
@@ -783,12 +784,24 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     else:
         st.sidebar.caption("방영중인 IP가 없습니다.")
 
-    # [섹션 2] 종영 (데이터가 있을 때만 표시)
+    # [섹션 2] 🏁 종영 (버튼 하나로 통합)
     if ended_list:
-        st.sidebar.markdown("---") # 구분선 추가
-        st.sidebar.markdown("##### 🏁 종영")
-        for ip in ended_list:
-            _render_nav_button(ip)
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("##### 🏁 종영작")
+        
+        # 종영작 리스트 페이지인지 확인
+        is_ended_page = (current_selected == "__ENDED_LIST__")
+        
+        # 버튼 색상을 다르게 하기 위해 type 활용 (방영중과 반대 or 강조)
+        # 여기서는 종영작 버튼을 눈에 띄게 하거나 구분감을 줌
+        if st.sidebar.button(
+            "🗂️ 종영작 보러가기", 
+            key="btn_go_ended_list", 
+            use_container_width=True, 
+            type="primary" if is_ended_page else "secondary" 
+        ):
+            st.session_state.selected_ip = "__ENDED_LIST__"
+            _rerun()
 
     # === 최하단: 데이터 새로고침 버튼 ===
     st.sidebar.markdown('<div class="sb-bottom">', unsafe_allow_html=True)
@@ -805,7 +818,6 @@ def render_sidebar_navigation(ip_status_map: Dict[str, str]):
     if ts:
         st.sidebar.caption(f"마지막 갱신: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))}")
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
-#endregion
 
 
 #region [ 5. 공통 집계 유틸: KPI 계산 ]
@@ -1764,53 +1776,95 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             render_published_url(tab_info["url"]) # [ 3. 공통 함수 ]
 #endregion
 
-
-#region [ 8. 메인 실행 ]
+# [Region 7.5. 종영작 리스트 페이지] (신규 추가)
 # =====================================================
-# [수정] URL 파라미터와 세션 상태를 동기화하고, 상태값(E열)을 반영하도록 수정
+def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
+    """
+    [신규] 종영된 IP들을 KPI 카드 형태의 버튼 그리드로 보여주는 페이지
+    """
+    ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
+    
+    st.markdown(f"<div class='page-title'>🏁 종영작 리스트 ({len(ended_list)})</div>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    if not ended_list:
+        st.info("종영된 IP 데이터가 없습니다.")
+        return
+
+    # CSS 적용을 위한 컨테이너 클래스 래핑
+    st.markdown('<div class="ended-card-grid">', unsafe_allow_html=True)
+    
+    # 4열 그리드로 배치
+    cols = st.columns(4)
+    for idx, ip_name in enumerate(ended_list):
+        with cols[idx % 4]:
+            # 버튼 클릭 시 해당 IP 상세페이지로 이동
+            if st.button(f"{ip_name}", key=f"card_btn_{ip_name}", use_container_width=True):
+                st.session_state.selected_ip = ip_name
+                _rerun()
+                
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# [Region 8. 메인 실행]
+# =====================================================
 
 # --- 1. 세션 스테이트 초기화 ---
 if "selected_ip" not in st.session_state:
     st.session_state.selected_ip = None 
 
-# --- 2. 사이드바 타이틀 렌더링 ---
-# (스크립트 상단 Region 1-1 에서 자동으로 실행됨)
-
-# --- 3. '방영중' 데이터 로드 (A~E열 처리) ---
-# [수정] 반환값이 (데이터맵, 상태맵) 튜플로 변경됨
+# --- 2. 데이터 로드 ---
 on_air_data, ip_status_map = load_processed_on_air_data() 
-on_air_ips = list(ip_status_map.keys()) # 전체 IP 목록
+on_air_ips = list(ip_status_map.keys())
 
-# --- 4. 초기 로드 시 URL 파라미터 읽기 ---
+# --- 3. URL 파라미터 처리 ---
 try:
-    selected_ip_from_url = st.query_params.get("ip", [None])[0]
+    url_ip = st.query_params.get("ip", [None])[0]
 except AttributeError:
-    selected_ip_from_url = st.experimental_get_query_params().get("ip", [None])[0]
+    url_ip = st.experimental_get_query_params().get("ip", [None])[0]
 
-# 세션에 IP가 없는데 (최초 로드) URL에 IP가 있다면, URL을 우선함
-if st.session_state.selected_ip is None and selected_ip_from_url and selected_ip_from_url in on_air_ips:
-    st.session_state.selected_ip = selected_ip_from_url
+# 최초 로드 시 URL에 IP가 있고, 세션이 비어있으면 URL 우선
+if st.session_state.selected_ip is None and url_ip:
+    # URL의 IP가 유효하면 그곳으로, 아니면 그대로 둠
+    if url_ip in on_air_ips:
+        st.session_state.selected_ip = url_ip
+    elif url_ip == "__ENDED_LIST__":
+        st.session_state.selected_ip = "__ENDED_LIST__"
 
-# --- 5. 사이드바 네비게이션 렌더링 ---
-# [수정] 상태 맵(ip_status_map)을 전달하여 섹션 구분 렌더링
-render_sidebar_navigation(ip_status_map) 
-
-# --- 6. 메인 페이지 렌더링 ---
-current_selected_ip = st.session_state.get("selected_ip", None)
-
-if current_selected_ip and selected_ip_from_url != current_selected_ip:
-     try:
-        st.query_params["ip"] = current_selected_ip
-     except AttributeError:
-        st.experimental_set_query_params(ip=current_selected_ip)
-
-if current_selected_ip:
-    render_ip_detail(current_selected_ip, on_air_data) 
-else:
-    st.markdown("## 📈 IP 성과 자세히보기")
-    if not on_air_ips:
-        st.error("오류: '방영중' 시트(A열)에 IP가 없습니다. 구글 시트를 확인하세요.")
+# 만약 아무것도 선택 안된 상태라면 (초기 진입), 방영중 첫번째를 보여줄지 리스트를 보여줄지 결정
+# (기존 로직 유지: 방영중 첫번째 자동 선택)
+if st.session_state.selected_ip is None and on_air_ips:
+    # 방영중인 것 중 첫번째
+    actives = [k for k,v in ip_status_map.items() if v == "방영중"]
+    if actives:
+        st.session_state.selected_ip = actives[0]
     else:
-        st.info("좌측 사이드바에서 IP를 선택해주세요.")
+        # 방영중 없으면 종영작 리스트로
+        st.session_state.selected_ip = "__ENDED_LIST__"
+
+
+# --- 4. 사이드바 렌더링 ---
+render_sidebar_navigation(ip_status_map)
+
+
+# --- 5. 메인 컨텐츠 라우팅 ---
+current_ip = st.session_state.selected_ip
+
+if current_ip == "__ENDED_LIST__":
+    # [신규] 종영작 리스트 페이지
+    render_ended_ip_list_page(ip_status_map)
+    # URL 업데이트
+    try: st.query_params["ip"] = "__ENDED_LIST__"
+    except: st.experimental_set_query_params(ip="__ENDED_LIST__")
+
+elif current_ip in on_air_ips:
+    # [기존] IP 상세 페이지
+    render_ip_detail(current_ip, on_air_data)
+    # URL 업데이트
+    try: st.query_params["ip"] = current_ip
+    except: st.experimental_set_query_params(ip=current_ip)
+
+else:
+    # 예외 처리
+    st.empty()
     
 #endregion
