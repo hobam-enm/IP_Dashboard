@@ -501,6 +501,87 @@ section[data-testid="stSidebar"] .block-container{
 """, unsafe_allow_html=True)
 #endregion
 
+#region [ 2.3. 종영작 리스트 카드 스타일 오버라이드 ]
+# =====================================================
+st.markdown("""
+<style>
+
+/* 1. 외곽 카드 제거 → '박스 안에 박스' 문제 해결 */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ended-card-grid) {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* 2. 종영작 카드 버튼 공통 스타일 (기존 것 덮어쓰기) */
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button {
+    background-color: #ffffff !important;
+    border: 1px solid #e9e9e9 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
+    
+    /* 높이 통일 (더미/실제 카드 모두 맞추기) */
+    height: 160px !important;
+    min-height: 160px !important;
+    width: 100% !important;
+    padding: 20px 16px !important;
+    
+    /* 줄바꿈 + 좌측 정렬 */
+    white-space: pre-wrap !important;
+    text-align: left !important;
+    line-height: 1.5 !important;
+    
+    vertical-align: top !important;
+    transition: all .2s ease !important;
+}
+
+/* hover 효과 */
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.08) !important;
+    border-color: #5c6bc0 !important;
+}
+
+/* 버튼 안 텍스트 기본 스타일 (두 번째 줄 이하) */
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button p {
+    font-size: 13px !important;
+    color: #666 !important;
+    margin-bottom: 0 !important;
+}
+
+/* 첫 줄(IP명)만 굵게/크게 → IP명 볼드 처리 */
+div[data-testid="stVerticalBlock"] > div.ended-card-grid button p::first-line {
+    font-size: 18px !important;
+    font-weight: 800 !important;
+    color: #111 !important;
+    line-height: 2.0 !important;  /* IP명과 지표 사이 간격 확보 */
+}
+
+/* 3. 더미 카드 스타일 (실제 카드와 동일 높이) */
+div[data-testid="stVerticalBlock"] > div.ended-card-grid .ended-card-dummy {
+    background-color: #ffffff !important;
+    border: 1px solid #e9e9e9 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
+
+    height: 160px !important;
+    min-height: 160px !important;
+    width: 100% !important;
+    padding: 20px 16px !important;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9ca3af;
+    font-size: 12px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+#endregion
+
 
 #region [ 3. 공통 함수: 데이터 로드 / 유틸리티 ]
 # =====================================================
@@ -1796,43 +1877,57 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 
 #region [7.5. 종영작 리스트 페이지]
-# [Region 7.5. 종영작 리스트 페이지] (v2 수정됨)
+# [Region 7.5. 종영작 리스트 페이지] (v3)
 # =====================================================
 def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
     """
-    [수정] 종영된 IP의 요약 정보를 카드에 표시 (디자인 개선)
+    종영된 IP의 요약 정보를 카드에 표시하는 페이지.
+
+    요구사항:
+    1) IP명 볼드 처리 (첫 줄)
+    2) IP명 / 타깃시청률 / 가구시청률 / 방영시작 → 줄바꿈 처리
+    3) 아직 없는 영역(더미 카드)도 실제 카드와 높이 맞추기
+    4) '박스 안에 박스' 제거 (외곽 카드만 남기고 내부 박스만 사용)
+       → 스타일은 [2.3] 리젼 CSS 오버라이드에서 처리
     """
+    # 1. 종영 IP 리스트 추출
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
     
-    st.markdown(f"<div class='page-title'>🏁 종영작 모아보기 ({len(ended_list)})</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='page-title'>🏁 종영작 모아보기 ({len(ended_list)})</div>",
+        unsafe_allow_html=True
+    )
     st.markdown("---")
 
     if not ended_list:
         st.info("종영된 IP 데이터가 없습니다.")
         return
 
-    # 1. 데이터 로드
+    # 2. 원본 데이터 로드
     df = load_data()
     
-    # 2. 카드 그리드 컨테이너 시작
+    # 3. 카드 그리드 컨테이너 시작
     st.markdown('<div class="ended-card-grid">', unsafe_allow_html=True)
     
-    # 3. 4열 그리드로 배치
-    cols_per_row = 4
+    cols_per_row = 4  # 한 줄에 4개 카드
+
     for i in range(0, len(ended_list), cols_per_row):
         row_ips = ended_list[i : i + cols_per_row]
         cols = st.columns(cols_per_row)
-        
+
+        # === (1) 실제 종영작 카드 렌더링 ===
         for idx, ip_name in enumerate(row_ips):
             with cols[idx]:
-                # --- 데이터 계산 ---
-                sub = df[df["IP"] == ip_name]
+                sub = df[df["IP"] == ip_name].copy()
                 
-                # 시청률 (값이 없으면 -)
+                # --- 시청률 계산 ---
                 val_T = mean_of_ip_episode_mean(sub, "T시청률")
                 val_H = mean_of_ip_episode_mean(sub, "H시청률")
                 
-                # 방영 시작일
+                fmt_T = f"{val_T:.2f}%" if val_T is not None else "-"
+                fmt_H = f"{val_H:.2f}%" if val_H is not None else "-"
+
+                # --- 방영 시작일 계산 ---
                 start_date_str = "-"
                 if "방영시작일" in sub.columns:
                     dates = pd.to_datetime(sub["방영시작일"], errors="coerce").dropna()
@@ -1843,28 +1938,45 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
                     if not dates.empty:
                         start_date_str = dates.min().strftime("%Y-%m-%d")
 
-                fmt_T = f"{val_T:.2f}%" if val_T is not None else "-"
-                fmt_H = f"{val_H:.2f}%" if val_H is not None else "-"
-                
-                # --- 버튼 텍스트 구성 (v2) ---
-                # 1. 첫 줄: IP명 (CSS ::first-line 적용 대상)
-                # 2. 이후: 지표들 (줄바꿈 \n 으로 구분)
+                # --- 버튼 텍스트 구성 ---
+                # 1줄: IP명 (CSS ::first-line으로 볼드/큰 글자 처리)
+                # 2줄: 타깃 시청률
+                # 3줄: 가구 시청률
+                # 4줄: 방영 시작
                 label_text = (
-                    f"{ip_name}\n"  # 아이콘 제거, IP명만 출력
-                    f"🎯 타깃 : {fmt_T}\n"
-                    f"🏠 가구 : {fmt_H}\n"
-                    f"📅 시작 : {start_date_str}"
+                    f"{ip_name}\n"
+                    f"타깃 시청률 : {fmt_T}\n"
+                    f"가구 시청률 : {fmt_H}\n"
+                    f"방영 시작 : {start_date_str}"
                 )
                 
-                # 버튼 클릭 시 이동
+                # 버튼 클릭 시 해당 IP 상세 페이지로 이동
                 if st.button(label_text, key=f"end_card_{ip_name}", use_container_width=True):
                     st.session_state.selected_ip = ip_name
                     _rerun()
-        
-        st.write("") # 행 간격
 
+        # === (2) 더미 카드 렌더링 (빈 자리 채우기) ===
+        # 현재 종영작이 1개뿐인 경우 등, 한 행의 나머지 칸도
+        # 동일 높이의 더미 카드로 채워서 레이아웃을 안정적으로 유지
+        if len(row_ips) < cols_per_row:
+            for dummy_idx in range(len(row_ips), cols_per_row):
+                with cols[dummy_idx]:
+                    st.markdown(
+                        """
+                        <div class="ended-card-dummy">
+                            종영작 카드가 표시될 예정인 자리입니다.
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+        # 행 간 여백
+        st.write("")
+
+    # 4. 카드 그리드 컨테이너 끝
     st.markdown('</div>', unsafe_allow_html=True)
 #endregion
+
 
 # [Region 8. 메인 실행]
 # =====================================================
