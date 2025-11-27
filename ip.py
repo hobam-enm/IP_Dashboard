@@ -1877,25 +1877,26 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 
 #region [7.5. 종영작 리스트 페이지]
-# [Region 7.5. 종영작 리스트 페이지] (v3)
+# [Region 7.5. 종영작 리스트 페이지] (HTML 카드 버전)
 # =====================================================
 def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
     """
     종영된 IP의 요약 정보를 카드에 표시하는 페이지.
 
-    요구사항:
-    1) IP명 볼드 처리 (첫 줄)
-    2) IP명 / 타깃시청률 / 가구시청률 / 방영시작 → 줄바꿈 처리
-    3) 아직 없는 영역(더미 카드)도 실제 카드와 높이 맞추기
-    4) '박스 안에 박스' 제거 (외곽 카드만 남기고 내부 박스만 사용)
-       → 스타일은 [2.3] 리젼 CSS 오버라이드에서 처리
+    변경 사항:
+    - st.button 대신 HTML 카드(<a> + <div>)로 렌더
+    - IP명은 굵게(bold), 아래 지표는 줄바꿈해서 표시
+    - 마지막 줄 빈 칸은 '빈 카드 박스'만 유지 (텍스트 없음)
+    - 클릭 시 ?ip=IP명 쿼리파라미터로 이동 → 메인 로직에서 그대로 처리
     """
+    from urllib.parse import quote
+
     # 1. 종영 IP 리스트 추출
     ended_list = [ip for ip, status in ip_status_map.items() if status == "종영"]
-    
+
     st.markdown(
         f"<div class='page-title'>🏁 종영작 모아보기 ({len(ended_list)})</div>",
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
     st.markdown("---")
 
@@ -1905,25 +1906,22 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
 
     # 2. 원본 데이터 로드
     df = load_data()
-    
-    # 3. 카드 그리드 컨테이너 시작
-    st.markdown('<div class="ended-card-grid">', unsafe_allow_html=True)
-    
-    cols_per_row = 4  # 한 줄에 4개 카드
 
+    # 3. 4열 그리드로 카드 배치
+    cols_per_row = 4
     for i in range(0, len(ended_list), cols_per_row):
         row_ips = ended_list[i : i + cols_per_row]
         cols = st.columns(cols_per_row)
 
-        # === (1) 실제 종영작 카드 렌더링 ===
-        for idx, ip_name in enumerate(row_ips):
-            with cols[idx]:
+        # (1) 실제 카드들
+        for col, ip_name in zip(cols, row_ips):
+            with col:
                 sub = df[df["IP"] == ip_name].copy()
-                
+
                 # --- 시청률 계산 ---
                 val_T = mean_of_ip_episode_mean(sub, "T시청률")
                 val_H = mean_of_ip_episode_mean(sub, "H시청률")
-                
+
                 fmt_T = f"{val_T:.2f}%" if val_T is not None else "-"
                 fmt_H = f"{val_H:.2f}%" if val_H is not None else "-"
 
@@ -1938,44 +1936,58 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
                     if not dates.empty:
                         start_date_str = dates.min().strftime("%Y-%m-%d")
 
-                # --- 버튼 텍스트 구성 ---
-                # 1줄: IP명 (CSS ::first-line으로 볼드/큰 글자 처리)
-                # 2줄: 타깃 시청률
-                # 3줄: 가구 시청률
-                # 4줄: 방영 시작
-                label_text = (
-                    f"{ip_name}\n"
-                    f"타깃 시청률 : {fmt_T}\n"
-                    f"가구 시청률 : {fmt_H}\n"
-                    f"방영 시작 : {start_date_str}"
-                )
-                
-                # 버튼 클릭 시 해당 IP 상세 페이지로 이동
-                if st.button(label_text, key=f"end_card_{ip_name}", use_container_width=True):
-                    st.session_state.selected_ip = ip_name
-                    _rerun()
+                # --- 카드 HTML 구성 ---
+                # 1줄: IP명 (굵게)
+                # 2~4줄: 타깃/가구/방영시작 (줄바꿈)
+                card_html = f"""
+<a href="?ip={quote(ip_name)}" style="text-decoration:none; color:inherit;">
+  <div style="
+      border-radius: 12px;
+      padding: 14px 16px;
+      border: 1px solid #e5e7eb;
+      background: #ffffff;
+      box-shadow: 0 2px 4px rgba(15,23,42,0.06);
+      min-height: 130px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+  ">
+    <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px; color:#111827;">
+      {ip_name}
+    </div>
+    <div style="font-size: 12px; line-height: 1.5; color:#4b5563;">
+      🎯 타깃 : {fmt_T}<br>
+      🏠 가구 : {fmt_H}<br>
+      📅 시작 : {start_date_str}
+    </div>
+  </div>
+</a>
+"""
+                st.markdown(card_html, unsafe_allow_html=True)
 
-        # === (2) 더미 카드 렌더링 (빈 자리 채우기) ===
-        # 현재 종영작이 1개뿐인 경우 등, 한 행의 나머지 칸도
-        # 동일 높이의 더미 카드로 채워서 레이아웃을 안정적으로 유지
+        # (2) 남는 칸은 "빈 카드 박스"만 만들어서 그리드 유지 (텍스트 없음)
         if len(row_ips) < cols_per_row:
-            for dummy_idx in range(len(row_ips), cols_per_row):
-                with cols[dummy_idx]:
+            for col in cols[len(row_ips) :]:
+                with col:
                     st.markdown(
                         """
-                        <div class="ended-card-dummy">
-                            종영작 카드가 표시될 예정인 자리입니다.
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+<div style="
+    border-radius: 12px;
+    padding: 14px 16px;
+    border: 1px solid transparent;
+    min-height: 130px;
+">
+</div>
+""",
+                        unsafe_allow_html=True,
                     )
 
         # 행 간 여백
         st.write("")
 
-    # 4. 카드 그리드 컨테이너 끝
-    st.markdown('</div>', unsafe_allow_html=True)
 #endregion
+
+
 
 
 # [Region 8. 메인 실행]
