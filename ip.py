@@ -1877,7 +1877,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
 
 #region [7.5. 종영작 리스트 페이지]
-# [Region 7.5. 종영작 리스트 페이지] (HTML 카드 버전)
 # =====================================================
 def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
     """
@@ -2006,6 +2005,13 @@ try:
     url_ip = st.query_params.get("ip", [None])[0]
 except AttributeError:
     url_ip = st.experimental_get_query_params().get("ip", [None])[0]
+
+# ✅ URL의 ip 파라미터를 항상 세션과 동기화
+if url_ip:
+    if url_ip in ip_status_map:          # 방영중/종영 여부 상관 없이, 목록에 있는 IP면
+        st.session_state.selected_ip = url_ip
+    elif url_ip == "__ENDED_LIST__":     # 종영작 리스트 페이지용 특수 값
+        st.session_state.selected_ip = "__ENDED_LIST__"
 
 # 최초 로드 시 URL에 IP가 있고, 세션이 비어있으면 URL 우선
 if st.session_state.selected_ip is None and url_ip:
