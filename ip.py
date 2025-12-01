@@ -1987,9 +1987,7 @@ def render_ended_ip_list_page(ip_status_map: Dict[str, str]):
 #endregion
 
 
-
-
-#region [ 8. 메인 실행 ]
+#region [ 8. 메인 실행  ]
 # =====================================================
 
 # --- 1. 세션 스테이트 초기화 ---
@@ -2002,7 +2000,6 @@ on_air_ips = list(ip_status_map.keys())
 
 # --- 3. URL 파라미터 처리 ---
 # [수정] query_params 버전 호환성 문제 해결
-# 최신 st.query_params는 문자열을 반환하므로 [0]을 붙이면 첫 글자만 잘리는 오류가 발생합니다.
 url_ip = None
 
 if hasattr(st, "query_params"):
@@ -2013,31 +2010,26 @@ else:
     params = st.experimental_get_query_params()
     url_ip = params.get("ip", [None])[0]
 
-# ✅ URL의 ip 파라미터를 항상 세션과 동기화
-if url_ip:
+# [수정] URL 파라미터는 '세션 정보가 없을 때(최초 진입)'만 적용하도록 조건 추가
+# (버튼 클릭 시에는 이미 session_state가 설정되어 있으므로 URL을 무시해야 함)
+if st.session_state.selected_ip is None and url_ip:
     if url_ip in ip_status_map:          # 방영중/종영 여부 상관 없이, 목록에 있는 IP면
         st.session_state.selected_ip = url_ip
     elif url_ip == "__ENDED_LIST__":     # 종영작 리스트 페이지용 특수 값
         st.session_state.selected_ip = "__ENDED_LIST__"
 
-# 최초 로드 시 URL에 IP가 있고, 세션이 비어있으면 URL 우선
-if st.session_state.selected_ip is None and url_ip:
-    # URL의 IP가 유효하면 그곳으로, 아니면 그대로 둠
-    if url_ip in on_air_ips:
-        st.session_state.selected_ip = url_ip
-    elif url_ip == "__ENDED_LIST__":
-        st.session_state.selected_ip = "__ENDED_LIST__"
-
-# 만약 아무것도 선택 안된 상태라면 (초기 진입), 방영중 첫번째를 보여줄지 리스트를 보여줄지 결정
-# (기존 로직 유지: 방영중 첫번째 자동 선택)
-if st.session_state.selected_ip is None and on_air_ips:
-    # 방영중인 것 중 첫번째
-    actives = [k for k,v in ip_status_map.items() if v == "방영중"]
-    if actives:
-        st.session_state.selected_ip = actives[0]
-    else:
-        # 방영중 없으면 종영작 리스트로
-        st.session_state.selected_ip = "__ENDED_LIST__"
+# 최초 로드 시 URL에 IP가 없고, 세션도 비어있다면 -> 방영중 첫 번째 IP 자동 선택
+if st.session_state.selected_ip is None:
+    if on_air_ips:
+        # 방영중인 것 중 첫번째
+        actives = [k for k,v in ip_status_map.items() if v == "방영중"]
+        if actives:
+            st.session_state.selected_ip = actives[0]
+        else:
+            # 방영중 없으면 종영작 리스트로
+            st.session_state.selected_ip = "__ENDED_LIST__"
+    elif not on_air_ips and "__ENDED_LIST__" in url_ip: # 데이터가 아예 없을 때 예외처리
+         st.session_state.selected_ip = "__ENDED_LIST__"
 
 
 # --- 4. 사이드바 렌더링 ---
