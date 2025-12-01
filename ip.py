@@ -2020,4 +2020,49 @@ if url_ip:
     elif url_ip == "__ENDED_LIST__":     # 종영작 리스트 페이지용 특수 값
         st.session_state.selected_ip = "__ENDED_LIST__"
 
-# ... (이하 코드는 기존과 동일) ...
+# 최초 로드 시 URL에 IP가 있고, 세션이 비어있으면 URL 우선
+if st.session_state.selected_ip is None and url_ip:
+    # URL의 IP가 유효하면 그곳으로, 아니면 그대로 둠
+    if url_ip in on_air_ips:
+        st.session_state.selected_ip = url_ip
+    elif url_ip == "__ENDED_LIST__":
+        st.session_state.selected_ip = "__ENDED_LIST__"
+
+# 만약 아무것도 선택 안된 상태라면 (초기 진입), 방영중 첫번째를 보여줄지 리스트를 보여줄지 결정
+# (기존 로직 유지: 방영중 첫번째 자동 선택)
+if st.session_state.selected_ip is None and on_air_ips:
+    # 방영중인 것 중 첫번째
+    actives = [k for k,v in ip_status_map.items() if v == "방영중"]
+    if actives:
+        st.session_state.selected_ip = actives[0]
+    else:
+        # 방영중 없으면 종영작 리스트로
+        st.session_state.selected_ip = "__ENDED_LIST__"
+
+
+# --- 4. 사이드바 렌더링 ---
+render_sidebar_navigation(ip_status_map)
+
+
+# --- 5. 메인 컨텐츠 라우팅 ---
+current_ip = st.session_state.selected_ip
+
+if current_ip == "__ENDED_LIST__":
+    # [신규] 종영작 리스트 페이지
+    render_ended_ip_list_page(ip_status_map)
+    # URL 업데이트
+    try: st.query_params["ip"] = "__ENDED_LIST__"
+    except: st.experimental_set_query_params(ip="__ENDED_LIST__")
+
+elif current_ip in on_air_ips:
+    # [기존] IP 상세 페이지
+    render_ip_detail(current_ip, on_air_data)
+    # URL 업데이트
+    try: st.query_params["ip"] = current_ip
+    except: st.experimental_set_query_params(ip=current_ip)
+
+else:
+    # 예외 처리
+    st.empty()
+    
+#endregion
