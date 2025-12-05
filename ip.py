@@ -279,21 +279,21 @@ section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
   justify-content: center;
 }
 .kpi-title { 
-    font-size: 25px; 
+    font-size: 20px; 
     font-weight: 600; 
     margin-bottom: 10px; 
     color: #444; 
 }
 .kpi-value { 
-    font-size: 32px; 
+    font-size: 25px; 
     font-weight: 700; 
     color: #000; 
     line-height: 1.2;
 }
 .kpi-subwrap { margin-top: 10px; line-height: 1.4; }
-.kpi-sublabel { font-size: 14px; font-weight: 500; color: #555; letter-spacing: 0.1px; margin-right: 6px; }
-.kpi-substrong { font-size: 20px; font-weight: 700; color: #111; }
-.kpi-subpct { font-size: 20px; font-weight: 700; }
+.kpi-sublabel { font-size: 13px; font-weight: 500; color: #555; letter-spacing: 0.1px; margin-right: 6px; }
+.kpi-substrong { font-size: 16px; font-weight: 700; color: #111; }
+.kpi-subpct { font-size: 16px; font-weight: 700; }
 
 /* --- [컴포넌트] AgGrid 공통 --- */
 .ag-theme-streamlit { font-size: 13px; }
