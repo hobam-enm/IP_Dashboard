@@ -1215,7 +1215,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
     """
     [수정] ip_selected와 '방영중' 탭에서 처리된 최종 데이터를 인자로 받음
     [수정] 탭 UI를 페이지 최상단으로 이동
-    [수정] 탭 1에 Dashboard_test.py의 최신 IP 상세 대시보드 로직을 적용
+    [수정] 탭 1에 Dashboard_test.py의 최신 IP 상세 대시보드 로직을 적용 (편성연도 기준 필터 수정)
     [수정] 탭 2+에 기존 Google Sheet 임베딩 로직을 복원
     """
 
@@ -1250,10 +1250,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         filter_cols = st.columns([1, 1])
 
         # --- 데이터 전처리 (Default 설정을 위해 위치 이동) ---
-        if "방영시작일" in df_full.columns and df_full["방영시작일"].notna().any():
-            date_col_for_filter = "방영시작일"
-        else:
-            date_col_for_filter = "주차시작일"
+        # [수정] 방영 연도 필터 기준을 '편성연도' 컬럼으로 변경 (날짜 파싱 X)
+        date_col_for_filter = "편성연도"
 
         target_ip_rows = df_full[df_full["IP"] == ip_selected]
         
@@ -1263,16 +1261,25 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         
         if not target_ip_rows.empty:
             try:
-                y_mode = target_ip_rows[date_col_for_filter].dropna().dt.year.mode()
-                if not y_mode.empty:
-                    default_year_list = [int(y_mode.iloc[0])]
+                # [수정] 날짜 파싱(.dt.year) 없이 값 그대로 모드 추출
+                if date_col_for_filter in target_ip_rows.columns:
+                    y_mode = target_ip_rows[date_col_for_filter].dropna().mode()
+                    if not y_mode.empty:
+                        default_year_list = [y_mode.iloc[0]]
+                
                 sel_prog = target_ip_rows["편성"].dropna().mode().iloc[0]
             except Exception:
                 pass
                 
         all_years = []
+        # [수정] '편성연도' 컬럼의 고유값을 그대로 사용
         if date_col_for_filter in df_full.columns:
-            all_years = sorted(df_full[date_col_for_filter].dropna().dt.year.unique().astype(int).tolist(), reverse=True)
+            unique_vals = df_full[date_col_for_filter].dropna().unique()
+            try:
+                all_years = sorted(unique_vals, reverse=True)
+            except:
+                # 정렬 실패(타입 혼재 등) 시 문자열 변환 후 정렬
+                all_years = sorted([str(x) for x in unique_vals], reverse=True)
 
         # [수정] [Col 1] 방영 연도
         with filter_cols[0]:
@@ -1342,12 +1349,18 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
 
         # 2. 방영 연도 필터
         if selected_years:
-            base_raw = base_raw[base_raw[date_col_for_filter].dt.year.isin(selected_years)]
+            # [수정] 날짜 파싱(.dt.year) 없이 컬럼 값 그대로 비교
+            base_raw = base_raw[base_raw[date_col_for_filter].isin(selected_years)]
+            
             if len(selected_years) <= 3:
                 years_str = ",".join(map(str, sorted(selected_years)))
-                group_name_parts.append(f"{years_str}년")
+                # [수정] 데이터 값 자체("24년")를 사용하므로 "년" 접미사 제거
+                group_name_parts.append(f"{years_str}")
             else:
-                group_name_parts.append(f"{min(selected_years)}~{max(selected_years)}년")
+                try:
+                    group_name_parts.append(f"{min(selected_years)}~{max(selected_years)}")
+                except:
+                    group_name_parts.append("선택연도")
         else:
             st.warning("선택된 연도가 없습니다. (전체 연도 데이터와 비교)", icon="⚠️")
 
