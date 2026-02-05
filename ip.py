@@ -1506,9 +1506,17 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             # [수정] 마지막 5번째 슬롯: Wavve 우선 -> Netflix -> 없으면 빈칸 (미방영 텍스트 X)
             with c10:
                 if val_wavve is not None and not pd.isna(val_wavve):
+                    # 웨이브는 기존 유지 (순위/비율 표시)
                     kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True)
+                
                 elif val_netflix_best is not None and not pd.isna(val_netflix_best) and val_netflix_best > 0:
-                    kpi_with_rank(c10, "🍿 넷플릭스 최고순위", val_netflix_best, base_netflix_best, rk_netflix, prog_label, intlike=True, value_suffix="위")
+                    # [수정] 넷플릭스: 그룹 비교 정보 제거하고 값만 표시
+                    main_val = f"{int(val_netflix_best)}위"
+                    st.markdown(
+                        f"<div class='kpi-card'><div class='kpi-title'>🍿 넷플릭스 최고순위</div>"
+                        f"<div class='kpi-value'>{main_val}</div>{sublines_dummy()}</div>",
+                        unsafe_allow_html=True
+                    )
                 else:
                     kpi_dummy(c10)
 
