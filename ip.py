@@ -1104,27 +1104,40 @@ def _series_ip_metric(base_df: pd.DataFrame, metric_name: str, mode: str = "mean
     if media is not None: sub = sub[sub["매체"].isin(media)]
     if sub.empty: return pd.Series(dtype=float)
     
+    # [수정] 넷플릭스 순위 등 회차 정보가 없을 수 있는 지표 예외 처리
     ep_col = _episode_col(sub)
-    sub = sub.dropna(subset=[ep_col])
-    sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
-    sub = sub.dropna(subset=["value"])
-    if sub.empty: return pd.Series(dtype=float)
     
-    if mode == "mean":
-        ep_mean = sub.groupby(["IP", ep_col], as_index=False)["value"].mean()
-        s = ep_mean.groupby("IP")["value"].mean()
-    elif mode == "sum": s = sub.groupby("IP")["value"].sum()
-    elif mode == "ep_sum_mean":
-        ep_sum = sub.groupby(["IP", ep_col], as_index=False)["value"].sum()
-        s = ep_sum.groupby("IP")["value"].mean()
-    elif mode == "min": s = sub.groupby("IP")["value"].min()
-    else: s = sub.groupby("IP")["value"].mean()
-    return pd.to_numeric(s, errors="coerce").dropna()
+    if metric_name == "N_W순위":
+         # 회차 상관없이 값만 있으면 됨
+         sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
+         sub = sub.dropna(subset=["value"])
+         if sub.empty: return pd.Series(dtype=float)
+         
+         if mode == "min": return sub.groupby("IP")["value"].min()
+         elif mode == "mean": return sub.groupby("IP")["value"].mean()
+         return sub.groupby("IP")["value"].min()
+    else:
+        sub = sub.dropna(subset=[ep_col])
+        sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan)
+        sub = sub.dropna(subset=["value"])
+        if sub.empty: return pd.Series(dtype=float)
+        
+        if mode == "mean":
+            ep_mean = sub.groupby(["IP", ep_col], as_index=False)["value"].mean()
+            s = ep_mean.groupby("IP")["value"].mean()
+        elif mode == "sum": s = sub.groupby("IP")["value"].sum()
+        elif mode == "ep_sum_mean":
+            ep_sum = sub.groupby(["IP", ep_col], as_index=False)["value"].sum()
+            s = ep_sum.groupby("IP")["value"].mean()
+        elif mode == "min": s = sub.groupby("IP")["value"].min()
+        else: s = sub.groupby("IP")["value"].mean()
+        return pd.to_numeric(s, errors="coerce").dropna()
 
 # [신규] Min Metric (Dashboard_test.py 8.에서 이식)
 def _min_of_ip_metric(df_src: pd.DataFrame, metric_name: str) -> float | None:
     sub = _metric_filter(df_src, metric_name).copy()
     if sub.empty: return None
+    sub["value"] = pd.to_numeric(sub["value"], errors="coerce").replace(0, np.nan) # 0 제외
     s = pd.to_numeric(sub["value"], errors="coerce").dropna()
     return float(s.min()) if not s.empty else None
 
@@ -1306,15 +1319,15 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     label_visibility="collapsed"
                 )
 
-            # [수정] [Col 2] 동일 편성 여부 (셀렉트박스)
+            # [수정] [Col 2] 편성 기준 필터 (옵션 확장: 동일편성/월화/토일/전체)
             with filter_cols[1]:
                 comp_type = st.selectbox(
                     "편성 기준",
-                    ["동일 편성", "전체"], 
+                    ["동일 편성", "월화", "토일", "전체"], 
                     index=0,
                     label_visibility="collapsed"
                 )
-                use_same_prog = (comp_type == "동일 편성")
+                # use_same_prog 변수는 이제 사용하지 않고 comp_type 값을 직접 비교
 
             # [신규] 지표 기준 안내를 필터 행 아래 별도 행에 배치
             with st.expander("ℹ️ 지표 기준 안내", expanded=False):
@@ -1328,6 +1341,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 - **디지털 조회** `누적 회차총합`: 방영주간 월~일 발생 총합 / 유튜브,인스타그램,틱톡,네이버TV,페이스북
                 - **디지털 언급량** `누적 회차총합`: 방영주차(월~일) 내 총합 / 커뮤니티,트위터,블로그                            
                 - **화제성 점수** `누적 회차평균`: 방영기간 주차별 화제성 점수의 평균 (펀덱스)
+                - **넷플릭스 순위** `최고 순위`: 방영 기간 중 기록한 주간 최고 순위 (N_W순위 기준, 0 제외)
                 """).strip())
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1354,13 +1368,20 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             base_raw = df_full.copy()
             group_name_parts = []
 
-            # 1. 동일 편성 필터
-            if use_same_prog:
+            # 1. 편성 필터 (확장된 로직 적용)
+            if comp_type == "동일 편성":
                 if sel_prog:
                     base_raw = base_raw[base_raw["편성"] == sel_prog]
                     group_name_parts.append(f"'{sel_prog}'")
                 else:
                     st.warning(f"'{ip_selected}'의 편성 정보가 없어 '동일 편성' 기준은 제외됩니다.", icon="⚠️")
+            elif comp_type == "월화":
+                base_raw = base_raw[base_raw["편성"] == "월화"]
+                group_name_parts.append("'월화'")
+            elif comp_type == "토일":
+                base_raw = base_raw[base_raw["편성"] == "토일"]
+                group_name_parts.append("'토일'")
+            # "전체"인 경우 별도 필터 없음
 
             # 2. 방영 연도 필터
             if selected_years:
@@ -1412,6 +1433,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             
             # [신규] Wavve VOD (metric="시청자수", media="웨이브")
             val_wavve = mean_of_ip_episode_sum(f, "시청자수", ["웨이브"])
+            
+            # [신규] Netflix Best Rank
+            val_netflix_best = _min_of_ip_metric(f, "N_W순위")
 
             val_buzz = mean_of_ip_sums(f, "언급량")
             val_view = mean_of_ip_sums(f, "조회수")
@@ -1426,6 +1450,10 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             
             # [신규] Wavve VOD Base
             base_wavve = mean_of_ip_episode_sum(base, "시청자수", ["웨이브"])
+            
+            # [신규] Netflix Base
+            base_netflix_series = _series_ip_metric(base, "N_W순위", mode="min")
+            base_netflix_best = float(base_netflix_series.mean()) if not base_netflix_series.empty else None
 
             base_buzz = mean_of_ip_sums(base, "언급량")
             base_view = mean_of_ip_sums(base, "조회수")
@@ -1443,6 +1471,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             
             # [신규] Wavve Rank
             rk_wavve = _rank_within_program(base, "시청자수", ip_selected, val_wavve, mode="ep_sum_mean", media=["웨이브"])
+            
+            # [신규] Netflix Rank
+            rk_netflix = _rank_within_program(base, "N_W순위", ip_selected, val_netflix_best, mode="min", media=None, low_is_good=True)
 
             rk_buzz  = _rank_within_program(base, "언급량",   ip_selected, val_buzz,  mode="sum",        media=None)
             rk_view  = _rank_within_program(base, "조회수",   ip_selected, val_view,  mode="sum",        media=None)
@@ -1472,11 +1503,14 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 )
             kpi_with_rank(c9, "🔥 화제성 점수", val_topic_avg, base_topic_avg, rk_fscr, prog_label, intlike=True)
             
-            # [수정] 마지막 5번째 슬롯: Wavve 데이터 있으면 표시, 없으면 Dummy
-            if val_wavve is not None and not pd.isna(val_wavve):
-                kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True)
-            else:
-                kpi_dummy(c10)
+            # [수정] 마지막 5번째 슬롯: Wavve 우선 -> Netflix -> 없으면 빈칸 (미방영 텍스트 X)
+            with c10:
+                if val_wavve is not None and not pd.isna(val_wavve):
+                    kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True)
+                elif val_netflix_best is not None and not pd.isna(val_netflix_best) and val_netflix_best > 0:
+                    kpi_with_rank(c10, "🍿 넷플릭스 최고순위", val_netflix_best, base_netflix_best, rk_netflix, prog_label, intlike=True, value_suffix="위")
+                else:
+                    kpi_dummy(c10)
 
             st.divider()
 
@@ -1630,8 +1664,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 _render_pyramid_local(cI, "", vod_demo, height=260) # [수정] _render_pyramid_local 사용
 
 
-            # === [Row3] 디지털 조회수/언급량 ===
-            cC, cD, cE = st.columns(3)
+            # === [Row3] 디지털 조회수/언급량 (2분할) ===
+            cC, cD = st.columns(2)
             digital_colors = ['#5c6bc0', '#7e57c2', '#26a69a', '#66bb6a', '#ffa726', '#ef5350'] # [신규] 디지털 색상
             
             with cC:
@@ -1717,6 +1751,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 else:
                     st.info("표시할 언급량 데이터가 없습니다.")
 
+            # === [Row4] 화제성 & 넷플릭스 (2분할) ===
+            cE, cF = st.columns(2)
+            
             with cE:
                 st.markdown("<div class='sec-title'>🔥 화제성 점수 & 순위</div>", unsafe_allow_html=True) # [수정] 제목
                 fdx = _metric_filter(f, "F_Total").copy(); fs = _metric_filter(f, "F_score").copy()
@@ -1761,6 +1798,51 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     else: st.info("표시할 화제성 데이터가 없습니다.")
                 else: st.info("표시할 화제성 데이터가 없습니다.")
 
+            # [신규] 넷플릭스 주간 순위 그래프 추가
+            with cF:
+                st.markdown("<div class='sec-title'>🍿 넷플릭스 주간 순위 추이</div>", unsafe_allow_html=True)
+                # N_W순위 데이터 필터링 (0은 제외)
+                n_df = _metric_filter(f, "N_W순위").copy()
+                n_df["val"] = pd.to_numeric(n_df["value"], errors="coerce").replace(0, np.nan)
+                n_df = n_df.dropna(subset=["val"])
+
+                if not n_df.empty:
+                    if has_week_col and f["주차"].notna().any():
+                        # 주차별 최소 순위 (1위가 최고)
+                        n_agg = n_df.groupby("주차", as_index=False)["val"].min()
+                        # 주차 정렬
+                        all_weeks = (f[["주차", "주차_num"]].dropna().drop_duplicates().sort_values("주차_num")["주차"].tolist())
+                        n_agg = n_agg.set_index("주차").reindex(all_weeks).dropna().reset_index()
+                        x_vals = n_agg["주차"]
+                        use_cat = True
+                    else:
+                        n_agg = n_df.groupby("주차시작일", as_index=False)["val"].min().sort_values("주차시작일")
+                        x_vals = n_agg["주차시작일"]
+                        use_cat = False
+                    
+                    y_vals = n_agg["val"]
+                    labels = [f"{int(v)}위" for v in y_vals]
+
+                    fig_nf = go.Figure()
+                    fig_nf.add_trace(go.Scatter(
+                        x=x_vals, y=y_vals, mode="lines+markers+text", name="넷플릭스 순위",
+                        text=labels, textposition="top center",
+                        line=dict(color='#E50914', width=3), # Netflix Red
+                        marker=dict(size=7, color='#E50914')
+                    ))
+                    
+                    # Y축 반전 (1위가 위로 가도록)
+                    # 범위 설정: 1위 ~ max+buffer. autorange="reversed" 사용
+                    fig_nf.update_yaxes(autorange="reversed", title=None, fixedrange=True, zeroline=False)
+                    
+                    if use_cat:
+                        fig_nf.update_xaxes(categoryorder="array", categoryarray=all_weeks, fixedrange=True)
+                    
+                    fig_nf.update_layout(legend_title=None, height=chart_h, margin=dict(l=8, r=8, t=20, b=8))
+                    st.plotly_chart(fig_nf, use_container_width=True, config=common_cfg)
+
+                else:
+                    st.info("넷플릭스 방영 기록이 없거나 데이터가 없습니다.")
 
 
             st.divider()
@@ -1892,8 +1974,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             tv_numeric = _build_demo_table_numeric(f, ["TV"])
             _render_aggrid_table(tv_numeric, "📺 TV (시청자수)")
 
-            tving_numeric = _build_demo_table_numeric(f, ["TVING LIVE", "TVING QUICK", "TVING VOD"])
+            tving_numeric = _build_demo_table_numeric(
+                f, ["TVING LIVE", "TVING QUICK", "TVING VOD"]
+            )
             _render_aggrid_table(tving_numeric, "▶︎ TVING 합산 시청자수")
+#endregion
 
     # ===== 탭 2+: 임베딩된 G-Sheet (재배치된 위젯에 렌더링) =====
     for tab_widget, sheet_url in sheet_widgets:
