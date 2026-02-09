@@ -1230,6 +1230,7 @@ def kpi_dummy(col):
 def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str]]], target_tab: str = None):
     """
     [수정] target_tab이 있으면 해당 탭을 리스트 맨 앞으로 이동시켜 기본 선택되게 함
+    [수정] 편성 기준 필터에 '평일' 추가 및 '수목' 편성작의 경우 디폴트를 '평일'로 설정
     """
 
     # ===== 1. 고정 페이지 타이틀 (항상 표시) =====
@@ -1319,15 +1320,29 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     label_visibility="collapsed"
                 )
 
-            # [수정] [Col 2] 편성 기준 필터 (옵션 확장: 동일편성/월화/토일/전체)
+            # [수정] [Col 2] 편성 기준 필터 (평일 추가 및 디폴트 로직 적용)
             with filter_cols[1]:
+                # 1. 옵션 리스트 정의 ("평일" 추가)
+                filter_options = ["동일 편성", "평일", "월화", "토일", "전체"]
+                
+                # 2. 디폴트 인덱스 설정 로직
+                # 기본값은 0 ("동일 편성")
+                default_idx = 0
+                
+                # 만약 해당 IP의 편성이 "수목"이라면, 디폴트를 "평일"로 설정
+                if sel_prog == "수목":
+                    # "평일"이 options 리스트의 몇 번째인지 확인 (여기서는 1번 인덱스)
+                    try:
+                        default_idx = filter_options.index("평일")
+                    except ValueError:
+                        default_idx = 0
+                
                 comp_type = st.selectbox(
                     "편성 기준",
-                    ["동일 편성", "월화", "토일", "전체"], 
-                    index=0,
+                    filter_options, 
+                    index=default_idx,
                     label_visibility="collapsed"
                 )
-                # use_same_prog 변수는 이제 사용하지 않고 comp_type 값을 직접 비교
 
             # [신규] 지표 기준 안내를 필터 행 아래 별도 행에 배치
             with st.expander("ℹ️ 지표 기준 안내", expanded=False):
@@ -1375,9 +1390,16 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     group_name_parts.append(f"'{sel_prog}'")
                 else:
                     st.warning(f"'{ip_selected}'의 편성 정보가 없어 '동일 편성' 기준은 제외됩니다.", icon="⚠️")
+            
+            elif comp_type == "평일":
+                # [수정] 평일: 월화 + 수목 포함
+                base_raw = base_raw[base_raw["편성"].isin(["월화", "수목"])]
+                group_name_parts.append("'평일(월화/수목)'")
+
             elif comp_type == "월화":
                 base_raw = base_raw[base_raw["편성"] == "월화"]
                 group_name_parts.append("'월화'")
+            
             elif comp_type == "토일":
                 base_raw = base_raw[base_raw["편성"] == "토일"]
                 group_name_parts.append("'토일'")
@@ -1993,7 +2015,6 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
         with tab_widget:
             # 탭 타이틀은 이미 탭 버튼에 있으므로 생략하거나, 필요시 표시
             render_published_url(sheet_url) # [ 3. 공통 함수 ]
-#endregion
 
 
 #region [7.5. 종영작 리스트 페이지]
