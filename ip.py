@@ -638,19 +638,27 @@ def load_data() -> pd.DataFrame:
         return pd.DataFrame()
 
     # --- 3. 데이터 전처리 (원본 코드와 동일) ---
-    if "주차시작일" in df.columns:
-        df["주차시작일"] = pd.to_datetime(
-            df["주차시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce"
-        )
-    if "방영시작일" in df.columns:
-        df["방영시작일"] = pd.to_datetime(
-            df["방영시작일"].astype(str).str.strip(),
-            format="%Y. %m. %d",
-            errors="coerce"
-        )
+    # [수정] 날짜 문자열 포맷이 "2024. 1. 1" / "2024.1.1" 등으로 섞여도 안전하게 파싱
+    def _parse_kor_date_series(s: pd.Series) -> pd.Series:
+        ss = s.astype(str).str.strip()
+        # 1) "2024. 1. 1" 형태
+        out = pd.to_datetime(ss, format="%Y. %m. %d", errors="coerce")
+        # 2) 공백 제거 후 "2024.1.1" 형태
+        mask = out.isna()
+        if mask.any():
+            ss2 = ss.str.replace(" ", "", regex=False)
+            out2 = pd.to_datetime(ss2, format="%Y.%m.%d", errors="coerce")
+            out.loc[mask] = out2.loc[mask]
+        return out
 
+    if "주차시작일" in df.columns:
+        df["주차시작일"] = _parse_kor_date_series(df["주차시작일"])
+
+    # 원본/변형 컬럼명 모두 처리
+    if "방영시작일" in df.columns:
+        df["방영시작일"] = _parse_kor_date_series(df["방영시작일"])
+    if "방영시작" in df.columns:
+        df["방영시작"] = _parse_kor_date_series(df["방영시작"])
     if "value" in df.columns:
         v = df["value"].astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
         df["value"] = pd.to_numeric(v, errors="coerce").fillna(0)
@@ -847,6 +855,50 @@ def _get_view_data(df: pd.DataFrame) -> pd.DataFrame:
         sub = sub[~yt_mask | (yt_mask & attr_mask)]
     
     return sub
+
+
+# ===== [신규] 미래 방영작 제외 공통 유틸 =====
+def _today_kst_date():
+    """KST(Asia/Seoul) 기준 오늘 날짜"""
+    return pd.Timestamp.now(tz="Asia/Seoul").date()
+
+def _pick_air_start_col(df: pd.DataFrame) -> str | None:
+    """데이터프레임에서 '방영시작' 계열 컬럼명을 자동 탐색"""
+    for c in ["방영시작", "방영시작일", "첫방", "방송시작일", "start_date", "startDate"]:
+        if c in df.columns:
+            return c
+    return None
+
+def _exclude_future_ips(df: pd.DataFrame, date_col: str | None = None) -> pd.DataFrame:
+    """
+    IP별 방영시작(최소값)이 오늘(KST) 이후인 작품은 비교군(평균/순위)에서 제외
+    - date_col이 없으면 자동 탐색
+    - 날짜 파싱 실패(NaT)는 제외하지 않음(데이터가 없을 수 있으므로)
+    """
+    if df is None or df.empty:
+        return df
+    col = date_col or _pick_air_start_col(df)
+    if not col or col not in df.columns:
+        return df
+
+    d = df.copy()
+    # 이미 datetime이면 그대로, 아니면 문자열 파싱 시도
+    if not pd.api.types.is_datetime64_any_dtype(d[col]):
+        ss = d[col].astype(str).str.strip()
+        dt = pd.to_datetime(ss, format="%Y. %m. %d", errors="coerce")
+        mask = dt.isna()
+        if mask.any():
+            ss2 = ss.str.replace(" ", "", regex=False)
+            dt2 = pd.to_datetime(ss2, format="%Y.%m.%d", errors="coerce")
+            dt.loc[mask] = dt2.loc[mask]
+        d[col] = dt
+
+    min_by_ip = d.groupby("IP")[col].min()
+    today = _today_kst_date()
+    future_ips = min_by_ip[(min_by_ip.notna()) & (min_by_ip.dt.date > today)].index
+    if len(future_ips) == 0:
+        return df
+    return d[~d["IP"].isin(future_ips)].copy()
 #endregion
 
 
@@ -1426,6 +1478,9 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                 group_name_parts.append("전체")
             
             prog_label = " & ".join(group_name_parts) + " 평균"
+
+            # [신규] 미래 방영작은 비교군(평균/순위/총N개)에서 제외
+            base_raw = _exclude_future_ips(base_raw)
 
             # --- (이하 로직 동일) ---
             if "회차_numeric" in base_raw.columns:
