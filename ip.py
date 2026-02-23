@@ -1590,7 +1590,7 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     # [수정] 넷플릭스: 그룹 비교 정보 제거하고 값만 표시
                     main_val = f"{int(val_netflix_best)}위"
                     st.markdown(
-                        f"<div class='kpi-card'><div class='kpi-title'>🍿 넷플릭스 최고순위</div>"
+                        f"<div class='kpi-card'><div class='kpi-title'>🍿 넷플릭스 주간 최고순위</div>"
                         f"<div class='kpi-value'>{main_val}</div>{sublines_dummy()}</div>",
                         unsafe_allow_html=True
                     )
