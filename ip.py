@@ -1267,13 +1267,16 @@ def _pct_color(val, base_val):
     return "#d93636" if pct > 100 else ("#2a61cc" if pct < 100 else "#444")
 
 # [신규] KPI Sublines (Dashboard_test.py 8.에서 이식)
-def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val):
+def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val, cutoff_label: str | None = None):
     rnk, total = rank_tuple if rank_tuple else (None, 0)
-    
+
     if rnk is not None and total > 0:
         prefix = "👑 " if rnk == 1 else ""
-        # [수정] (총 N개) 폰트 사이즈 11px -> 13px
-        rank_label = f"{prefix}{rnk}위<span style='font-size:13px;font-weight:400;color:#9ca3af;margin-left:2px'>(총{total}개)</span>"
+        cutoff_txt = f"/{cutoff_label}" if cutoff_label else ""
+        rank_label = (
+            f"{prefix}{rnk}위"
+            f"<span style='font-size:13px;font-weight:400;color:#9ca3af;margin-left:2px'>(총{total}개{cutoff_txt})</span>"
+        )
     else:
         rank_label = "–위"
 
@@ -1282,7 +1285,9 @@ def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val):
         if (val is not None) and (base_val not in (None, 0)) and (not (pd.isna(val) or pd.isna(base_val))):
             pct = (float(val) / float(base_val)) * 100.0
             pct_txt = f"{pct:.0f}%"; col = _pct_color(val, base_val)
-    except Exception: pass
+    except Exception:
+        pass
+
     return (
         "<div class='kpi-subwrap'>"
         "<span class='kpi-sublabel'>그룹 內</span> "
@@ -1291,6 +1296,48 @@ def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val):
         f"<span class='kpi-subpct' style='color:{col};'>{pct_txt}</span>"
         "</div>"
     )
+
+# [신규] cutoff label helper
+def _cutoff_label_for_metric(f: pd.DataFrame, metric_name: str, cutoff_kind: str = "episode", media: List[str] | None = None) -> str | None:
+    """선택 IP(f) 기준으로 컷오프 라벨 생성
+    - week   : ~W+N
+    - episode: ~N화
+    """
+    if f is None or f.empty:
+        return None
+
+    # metric 표준화
+    if metric_name == "조회수":
+        sub = _get_view_data(f)
+    else:
+        sub = f[f["metric"] == metric_name].copy()
+
+    if media is not None and "매체" in sub.columns:
+        sub = sub[sub["매체"].isin(media)]
+
+    if sub.empty:
+        return None
+
+    if cutoff_kind == "week":
+        if "주차_num" in sub.columns and sub["주차_num"].notna().any():
+            cut_week = sub["주차_num"].max()
+            if pd.notna(cut_week):
+                return f"~W+{int(cut_week)}"
+
+        # week이 없으면 episode로 fallback
+        if "회차_num" in sub.columns and sub["회차_num"].notna().any():
+            cut_ep = sub["회차_num"].max()
+            if pd.notna(cut_ep):
+                return f"~{int(cut_ep)}화"
+        return None
+
+    # episode
+    if "회차_num" in sub.columns and sub["회차_num"].notna().any():
+        cut_ep = sub["회차_num"].max()
+        if pd.notna(cut_ep):
+            return f"~{int(cut_ep)}화"
+
+    return None
 
 # [신규] KPI Dummy (Dashboard_test.py 8.에서 이식)
 def sublines_dummy():
@@ -1302,13 +1349,13 @@ def sublines_dummy():
     )
 
 # [신규] KPI Render (Dashboard_test.py 8.에서 이식)
-def kpi_with_rank(col, title, value, base_val, rank_tuple, prog_label, intlike=False, digits=3, value_suffix=""):
+def kpi_with_rank(col, title, value, base_val, rank_tuple, prog_label, intlike=False, digits=3, value_suffix="", cutoff_label: str | None = None):
     with col:
         main_val = fmt(value, digits=digits, intlike=intlike)
         st.markdown(
             f"<div class='kpi-card'><div class='kpi-title'>{title}</div>"
             f"<div class='kpi-value'>{main_val}{value_suffix}</div>"
-            f"{sublines_html(prog_label, rank_tuple, value, base_val)}</div>",
+            f"{sublines_html(prog_label, rank_tuple, value, base_val, cutoff_label=cutoff_label)}</div>",
             unsafe_allow_html=True
         )
 
@@ -1602,18 +1649,31 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             rk_fscr  = _rank_within_program(_base_slice_for_metric(base_raw, f, "F_score", "week"), "F_score",  ip_selected, val_topic_avg, mode="mean",  media=None, low_is_good=False)
 
 
-            # === KPI 배치 (Row 1) ===
+                        # === KPI 배치 (Row 1) ===
+            # 컷오프 라벨(선택 IP 기준)
+            cut_T     = _cutoff_label_for_metric(f, "T시청률", "episode")
+            cut_H     = _cutoff_label_for_metric(f, "H시청률", "episode")
+            cut_live  = _cutoff_label_for_metric(f, "시청인구", "episode", media=["TVING LIVE"])
+            cut_quick = _cutoff_label_for_metric(f, "시청인구", "episode", media=["TVING QUICK"])
+            cut_vod   = _cutoff_label_for_metric(f, "시청인구", "episode", media=["TVING VOD"])
+
             c1, c2, c3, c4, c5 = st.columns(5)
-            kpi_with_rank(c1, "🎯 타깃시청률",    val_T, base_T, rk_T, prog_label, digits=3)
-            kpi_with_rank(c2, "🏠 가구시청률",    val_H, base_H, rk_H, prog_label, digits=3)
-            kpi_with_rank(c3, "📺 티빙 LIVE UV",     val_live, base_live, rk_live, prog_label, intlike=True)
-            kpi_with_rank(c4, "⚡ 티빙 당일 VOD UV",  val_quick, base_quick, rk_quick, prog_label, intlike=True)
-            kpi_with_rank(c5, "▶️ 티빙 주간 VOD UV", val_vod, base_vod, rk_vod, prog_label, intlike=True)
+            kpi_with_rank(c1, "🎯 타깃시청률",        val_T,     base_T,     rk_T,     prog_label, digits=3,  cutoff_label=cut_T)
+            kpi_with_rank(c2, "🏠 가구시청률",        val_H,     base_H,     rk_H,     prog_label, digits=3,  cutoff_label=cut_H)
+            kpi_with_rank(c3, "📺 티빙 LIVE UV",     val_live,  base_live,  rk_live,  prog_label, intlike=True, cutoff_label=cut_live)
+            kpi_with_rank(c4, "⚡ 티빙 당일 VOD UV",  val_quick, base_quick, rk_quick, prog_label, intlike=True, cutoff_label=cut_quick)
+            kpi_with_rank(c5, "▶️ 티빙 주간 VOD UV",  val_vod,   base_vod,   rk_vod,   prog_label, intlike=True, cutoff_label=cut_vod)
 
             # === KPI 배치 (Row 2) ===
+            cut_view  = _cutoff_label_for_metric(f, "조회수",  "week")
+            cut_buzz  = _cutoff_label_for_metric(f, "언급량",  "week")
+            cut_fscr  = _cutoff_label_for_metric(f, "F_score", "week")
+            cut_wavve = _cutoff_label_for_metric(f, "시청자수", "episode", media=["웨이브"])
+
             c6, c7, c8, c9, c10 = st.columns(5)
-            kpi_with_rank(c6, "👀 디지털 조회수", val_view, base_view, rk_view, prog_label, intlike=True)
-            kpi_with_rank(c7, "💬 디지털 언급량", val_buzz, base_buzz, rk_buzz, prog_label, intlike=True)
+            kpi_with_rank(c6, "👀 디지털 조회수", val_view, base_view, rk_view, prog_label, intlike=True, cutoff_label=cut_view)
+            kpi_with_rank(c7, "💬 디지털 언급량", val_buzz, base_buzz, rk_buzz, prog_label, intlike=True, cutoff_label=cut_buzz)
+
             with c8:
                 v = val_topic_min
                 main_val = "–" if (v is None or pd.isna(v)) else f"{int(round(v)):,d}위"
@@ -1622,16 +1682,15 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     f"<div class='kpi-value'>{main_val}</div>{sublines_dummy()}</div>",
                     unsafe_allow_html=True
                 )
-            kpi_with_rank(c9, "🔥 화제성 점수", val_topic_avg, base_topic_avg, rk_fscr, prog_label, intlike=True)
-            
+
+            kpi_with_rank(c9, "🔥 화제성 점수", val_topic_avg, base_topic_avg, rk_fscr, prog_label, intlike=True, cutoff_label=cut_fscr)
+
             # [수정] 마지막 5번째 슬롯: Wavve 우선 -> Netflix -> 없으면 빈칸 (미방영 텍스트 X)
             with c10:
                 if val_wavve is not None and not pd.isna(val_wavve):
-                    # 웨이브는 기존 유지 (순위/비율 표시)
-                    kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True)
-                
+                    kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True, cutoff_label=cut_wavve)
+
                 elif val_netflix_best is not None and not pd.isna(val_netflix_best) and val_netflix_best > 0:
-                    # [수정] 넷플릭스: 그룹 비교 정보 제거하고 값만 표시
                     main_val = f"{int(val_netflix_best)}위"
                     st.markdown(
                         f"<div class='kpi-card'><div class='kpi-title'>🍿 넷플릭스 주간 최고순위</div>"
