@@ -1322,7 +1322,7 @@ def _cutoff_label_for_metric(f: pd.DataFrame, metric_name: str, cutoff_kind: str
         if "주차_num" in sub.columns and sub["주차_num"].notna().any():
             cut_week = sub["주차_num"].max()
             if pd.notna(cut_week):
-                return f"~W+{int(cut_week)}"
+                return f"~W{int(cut_week)}"
 
         # week이 없으면 episode로 fallback
         if "회차_num" in sub.columns and sub["회차_num"].notna().any():
