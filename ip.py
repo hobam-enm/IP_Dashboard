@@ -284,6 +284,33 @@ section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
     margin-bottom: 10px; 
     color: #444; 
 }
+.kpi-title-row { display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; }
+.kpi-info-wrap { position:relative; display:inline-flex; align-items:center; }
+.kpi-info-icon {
+    width:18px; height:18px; border-radius:50%;
+    display:inline-flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:700; line-height:1;
+    color:#4b5563; background:#f3f4f6; border:1px solid #d1d5db; cursor:default;
+}
+.kpi-info-wrap:hover .kpi-info-icon { background:#e8eefc; color:#2a61cc; border-color:#b7c7ee; }
+.kpi-tooltip {
+    position:absolute; z-index:9999; left:50%; transform:translateX(-50%); top:24px;
+    min-width:260px; max-width:340px;
+    background:#ffffff; border:1px solid #dfe3ea; border-radius:10px;
+    box-shadow:0 12px 28px rgba(16,24,40,.16), 0 2px 8px rgba(16,24,40,.08);
+    padding:10px 12px; text-align:left; opacity:0; visibility:hidden; pointer-events:none;
+    transition:opacity .15s ease, visibility .15s ease;
+}
+.kpi-info-wrap:hover .kpi-tooltip { opacity:1; visibility:visible; }
+.kpi-tooltip::before {
+    content:""; position:absolute; top:-7px; left:50%; transform:translateX(-50%) rotate(45deg);
+    width:12px; height:12px; background:#ffffff; border-left:1px solid #dfe3ea; border-top:1px solid #dfe3ea;
+}
+.rank-tip-title { font-size:12px; font-weight:700; color:#374151; margin-bottom:6px; }
+.rank-tip-row { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:6px; }
+.rank-tip-rank { width:36px; flex:0 0 36px; font-size:12px; font-weight:700; color:#111827; }
+.rank-tip-name { flex:1 1 auto; min-width:0; font-size:12px; color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rank-tip-val { flex:0 0 auto; font-size:12px; font-weight:700; color:#111827; }
 .kpi-value { 
     font-size: 25px; 
     font-weight: 700; 
@@ -1260,6 +1287,35 @@ def _rank_within_program(base_df, metric_name, ip_name, value, mode="mean", medi
     ranks = s.rank(method="min", ascending=low_is_good)
     return (int(ranks.loc[ip_name]), int(s.shape[0]))
 
+def _comparison_detail_rows(base_df, metric_name, ip_name, mode="mean", media=None, low_is_good=False, window: int = 3):
+    s = _series_ip_metric(base_df, metric_name, mode=mode, media=media)
+    if s.empty:
+        return []
+
+    s = s.dropna()
+    if s.empty:
+        return []
+
+    s = s.sort_values(ascending=low_is_good)
+    ranks = s.rank(method="min", ascending=low_is_good).astype(int)
+
+    rows = []
+    for name, val in s.items():
+        rows.append({
+            "ip": str(name),
+            "rank": int(ranks.loc[name]),
+            "value": float(val),
+            "is_me": (str(name) == str(ip_name))
+        })
+
+    my_idx = next((i for i, r in enumerate(rows) if r["is_me"]), None)
+    if my_idx is None:
+        return rows[: min(len(rows), window * 2 + 1)]
+
+    start = max(0, my_idx - window)
+    end = min(len(rows), my_idx + window + 1)
+    return rows[start:end]
+
 # [신규] PCT Color (Dashboard_test.py 8.에서 이식)
 def _pct_color(val, base_val):
     if val is None or pd.isna(val) or base_val in (None, 0) or pd.isna(base_val): return "#888"
@@ -1267,7 +1323,36 @@ def _pct_color(val, base_val):
     return "#d93636" if pct > 100 else ("#2a61cc" if pct < 100 else "#444")
 
 # [신규] KPI Sublines (Dashboard_test.py 8.에서 이식)
-def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val, cutoff_label: str | None = None):
+def _fmt_tooltip_value(v, intlike=False, digits=3):
+    if v is None or pd.isna(v):
+        return "–"
+    return f"{float(v):,.0f}" if intlike else f"{float(v):,.{digits}f}"
+
+def _comparison_tooltip_html(detail_rows, prog_label: str, cutoff_label: str | None = None, intlike=False, digits=3):
+    if not detail_rows:
+        return ""
+
+    cutoff_txt = f" / {cutoff_label}" if cutoff_label else ""
+    lines = [f"<div class='rank-tip-title'>비교군: {prog_label}{cutoff_txt}</div>"]
+    for r in detail_rows:
+        row_style = "background:#eef4ff;" if r.get("is_me") else ""
+        name_style = "font-weight:700;color:#111827;" if r.get("is_me") else ""
+        lines.append(
+            "<div class='rank-tip-row' style='{}'>"
+            "<span class='rank-tip-rank'>{}위</span>"
+            "<span class='rank-tip-name' style='{}'>{}</span>"
+            "<span class='rank-tip-val'>{}</span>"
+            "</div>".format(
+                row_style,
+                r.get("rank", "–"),
+                name_style,
+                str(r.get("ip", "–")),
+                _fmt_tooltip_value(r.get("value"), intlike=intlike, digits=digits)
+            )
+        )
+    return "<div class='kpi-tooltip'>" + "".join(lines) + "</div>"
+
+def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val, cutoff_label: str | None = None, detail_rows=None, intlike=False, digits=3):
     rnk, total = rank_tuple if rank_tuple else (None, 0)
 
     if rnk is not None and total > 0:
@@ -1288,10 +1373,20 @@ def sublines_html(prog_label: str, rank_tuple: tuple, val, base_val, cutoff_labe
     except Exception:
         pass
 
+    tip_html = _comparison_tooltip_html(detail_rows or [], prog_label, cutoff_label=cutoff_label, intlike=intlike, digits=digits)
+    info_html = ""
+    if tip_html:
+        info_html = (
+            "<span class='kpi-info-wrap'>"
+            "<span class='kpi-info-icon'>i</span>"
+            f"{tip_html}"
+            "</span>"
+        )
+
     return (
         "<div class='kpi-subwrap'>"
         "<span class='kpi-sublabel'>그룹 內</span> "
-        f"<span class='kpi-substrong'>{rank_label}</span><br/>"
+        f"<span class='kpi-substrong'>{rank_label}</span>{info_html}<br/>"
         "<span class='kpi-sublabel'>그룹 평균比</span> "
         f"<span class='kpi-subpct' style='color:{col};'>{pct_txt}</span>"
         "</div>"
@@ -1349,13 +1444,13 @@ def sublines_dummy():
     )
 
 # [신규] KPI Render (Dashboard_test.py 8.에서 이식)
-def kpi_with_rank(col, title, value, base_val, rank_tuple, prog_label, intlike=False, digits=3, value_suffix="", cutoff_label: str | None = None):
+def kpi_with_rank(col, title, value, base_val, rank_tuple, prog_label, intlike=False, digits=3, value_suffix="", cutoff_label: str | None = None, detail_rows=None):
     with col:
         main_val = fmt(value, digits=digits, intlike=intlike)
         st.markdown(
             f"<div class='kpi-card'><div class='kpi-title'>{title}</div>"
             f"<div class='kpi-value'>{main_val}{value_suffix}</div>"
-            f"{sublines_html(prog_label, rank_tuple, value, base_val, cutoff_label=cutoff_label)}</div>",
+            f"{sublines_html(prog_label, rank_tuple, value, base_val, cutoff_label=cutoff_label, detail_rows=detail_rows, intlike=intlike, digits=digits)}</div>",
             unsafe_allow_html=True
         )
 
@@ -1649,7 +1744,18 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             rk_fscr  = _rank_within_program(_base_slice_for_metric(base_raw, f, "F_score", "week"), "F_score",  ip_selected, val_topic_avg, mode="mean",  media=None, low_is_good=False)
 
 
-                        # === KPI 배치 (Row 1) ===
+                        # === KPI Hover 비교군 상세 ===
+            detail_T     = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "T시청률", "episode"), "T시청률", ip_selected, mode="mean")
+            detail_H     = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "H시청률", "episode"), "H시청률", ip_selected, mode="mean")
+            detail_live  = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "시청인구", "episode"), "시청인구", ip_selected, mode="ep_sum_mean", media=["TVING LIVE"])
+            detail_quick = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "시청인구", "episode"), "시청인구", ip_selected, mode="ep_sum_mean", media=["TVING QUICK"])
+            detail_vod   = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "시청인구", "episode"), "시청인구", ip_selected, mode="ep_sum_mean", media=["TVING VOD"])
+            detail_view  = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "조회수", "week"), "조회수", ip_selected, mode="sum")
+            detail_buzz  = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "언급량", "week"), "언급량", ip_selected, mode="sum")
+            detail_fscr  = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "F_score", "week"), "F_score", ip_selected, mode="mean")
+            detail_wavve = _comparison_detail_rows(_base_slice_for_metric(base_raw, f, "시청자수", "episode"), "시청자수", ip_selected, mode="ep_sum_mean", media=["웨이브"])
+
+            # === KPI 배치 (Row 1) ===
             # 컷오프 라벨(선택 IP 기준)
             cut_T     = _cutoff_label_for_metric(f, "T시청률", "episode")
             cut_H     = _cutoff_label_for_metric(f, "H시청률", "episode")
@@ -1658,11 +1764,11 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             cut_vod   = _cutoff_label_for_metric(f, "시청인구", "episode", media=["TVING VOD"])
 
             c1, c2, c3, c4, c5 = st.columns(5)
-            kpi_with_rank(c1, "🎯 타깃시청률",        val_T,     base_T,     rk_T,     prog_label, digits=3,  cutoff_label=cut_T)
-            kpi_with_rank(c2, "🏠 가구시청률",        val_H,     base_H,     rk_H,     prog_label, digits=3,  cutoff_label=cut_H)
-            kpi_with_rank(c3, "📺 티빙 LIVE UV",     val_live,  base_live,  rk_live,  prog_label, intlike=True, cutoff_label=cut_live)
-            kpi_with_rank(c4, "⚡ 티빙 당일 VOD UV",  val_quick, base_quick, rk_quick, prog_label, intlike=True, cutoff_label=cut_quick)
-            kpi_with_rank(c5, "▶️ 티빙 주간 VOD UV",  val_vod,   base_vod,   rk_vod,   prog_label, intlike=True, cutoff_label=cut_vod)
+            kpi_with_rank(c1, "🎯 타깃시청률",        val_T,     base_T,     rk_T,     prog_label, digits=3,  cutoff_label=cut_T, detail_rows=detail_T)
+            kpi_with_rank(c2, "🏠 가구시청률",        val_H,     base_H,     rk_H,     prog_label, digits=3,  cutoff_label=cut_H, detail_rows=detail_H)
+            kpi_with_rank(c3, "📺 티빙 LIVE UV",     val_live,  base_live,  rk_live,  prog_label, intlike=True, cutoff_label=cut_live, detail_rows=detail_live)
+            kpi_with_rank(c4, "⚡ 티빙 당일 VOD UV",  val_quick, base_quick, rk_quick, prog_label, intlike=True, cutoff_label=cut_quick, detail_rows=detail_quick)
+            kpi_with_rank(c5, "▶️ 티빙 주간 VOD UV",  val_vod,   base_vod,   rk_vod,   prog_label, intlike=True, cutoff_label=cut_vod, detail_rows=detail_vod)
 
             # === KPI 배치 (Row 2) ===
             cut_view  = _cutoff_label_for_metric(f, "조회수",  "week")
@@ -1671,8 +1777,8 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
             cut_wavve = _cutoff_label_for_metric(f, "시청자수", "episode", media=["웨이브"])
 
             c6, c7, c8, c9, c10 = st.columns(5)
-            kpi_with_rank(c6, "👀 디지털 조회수", val_view, base_view, rk_view, prog_label, intlike=True, cutoff_label=cut_view)
-            kpi_with_rank(c7, "💬 디지털 언급량", val_buzz, base_buzz, rk_buzz, prog_label, intlike=True, cutoff_label=cut_buzz)
+            kpi_with_rank(c6, "👀 디지털 조회수", val_view, base_view, rk_view, prog_label, intlike=True, cutoff_label=cut_view, detail_rows=detail_view)
+            kpi_with_rank(c7, "💬 디지털 언급량", val_buzz, base_buzz, rk_buzz, prog_label, intlike=True, cutoff_label=cut_buzz, detail_rows=detail_buzz)
 
             with c8:
                 v = val_topic_min
@@ -1683,12 +1789,12 @@ def render_ip_detail(ip_selected: str, on_air_data: Dict[str, List[Dict[str, str
                     unsafe_allow_html=True
                 )
 
-            kpi_with_rank(c9, "🔥 화제성 점수", val_topic_avg, base_topic_avg, rk_fscr, prog_label, intlike=True, cutoff_label=cut_fscr)
+            kpi_with_rank(c9, "🔥 화제성 점수", val_topic_avg, base_topic_avg, rk_fscr, prog_label, intlike=True, cutoff_label=cut_fscr, detail_rows=detail_fscr)
 
             # [수정] 마지막 5번째 슬롯: Wavve 우선 -> Netflix -> 없으면 빈칸 (미방영 텍스트 X)
             with c10:
                 if val_wavve is not None and not pd.isna(val_wavve):
-                    kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True, cutoff_label=cut_wavve)
+                    kpi_with_rank(c10, "🌊 웨이브 VOD UV", val_wavve, base_wavve, rk_wavve, prog_label, intlike=True, cutoff_label=cut_wavve, detail_rows=detail_wavve)
 
                 elif val_netflix_best is not None and not pd.isna(val_netflix_best) and val_netflix_best > 0:
                     main_val = f"{int(val_netflix_best)}위"
